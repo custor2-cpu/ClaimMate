@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm audit *)",
+      "Bash(curl -s -X POST http://localhost:3000/api/analyze -H \"Content-Type: application/json\" -d '{\"text\":\"헬스장 1년권 결제 후 2주 만에 환불 요청했으나 위약금 50% 요구했습니다\",\"amount\":600000,\"date\":\"2026-07-01\"}' -o /tmp/ml_result.json -w \"HTTP %{http_code}\\\\n\")",
+      "Read(//tmp/**)",
+      "Bash(curl -s -X POST http://localhost:3000/api/analyze -H \"Content-Type: application/json\" --data-binary @\"C:\\\\Users\\\\cools\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--AI-Project-ClaimMate\\\\ac453789-fb91-4ae6-bc5a-8dcdfd31bb47\\\\scratchpad\\\\test_payload.json\" -o /tmp/ml_result2.json -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(curl -s -X POST http://localhost:3000/api/agent -H \"Content-Type: application/json\" --data-binary @/tmp/ml_result2.json -o /tmp/agent_result.json -w \"HTTP %{http_code}\\\\n\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('/tmp/agent_result.json', encoding='utf-8'\\)\\); print\\(json.dumps\\(d, ensure_ascii=False, indent=2\\)\\)\")",
+      "Bash(curl -s -X POST http://localhost:3000/api/agent -H 'Content-Type: application/json' --data-binary @/tmp/ml_result2.json -o __TRACKED_VAR__/agent_result.json -w 'HTTP %{http_code}\\\\n')",
+      "Bash(python -c ' *)",
+      "Bash(npx --yes playwright --version)",
+      "Bash(npx --yes playwright install chromium)",
+      "Bash(node \"C:\\\\Users\\\\cools\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--AI-Project-ClaimMate\\\\ac453789-fb91-4ae6-bc5a-8dcdfd31bb47\\\\scratchpad\\\\e2e_test.mjs\")",
+      "Bash(node _e2e_test.mjs)",
+      "Bash(cp 'C:\\\\Users\\\\cools\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--AI-Project-ClaimMate\\\\ac453789-fb91-4ae6-bc5a-8dcdfd31bb47\\\\scratchpad/test_payload.json' 'C:\\\\Users\\\\cools\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--AI-Project-ClaimMate\\\\ac453789-fb91-4ae6-bc5a-8dcdfd31bb47\\\\scratchpad/test_payload2.json')",
+      "Bash(time curl -s -X POST http://localhost:3000/api/analyze -H 'Content-Type: application/json' --data-binary '@C:\\\\Users\\\\cools\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--AI-Project-ClaimMate\\\\ac453789-fb91-4ae6-bc5a-8dcdfd31bb47\\\\scratchpad/test_payload2.json' -o 'C:\\\\Users\\\\cools\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--AI-Project-ClaimMate\\\\ac453789-fb91-4ae6-bc5a-8dcdfd31bb47\\\\scratchpad/analyze_v2.json' -w '\\\\nHTTP %{http_code}\\\\n')",
+      "Bash(curl -sf http://localhost:3000)",
+      "Bash(git config *)",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "Bash(git init *)"
+    ]
+  }
+}

@@ -1,0 +1,164 @@
+"use client";
+
+import { useState } from "react";
+import { motion } from "framer-motion";
+import {
+  AlertTriangle,
+  Gavel,
+  Layers,
+  Percent,
+  ScanSearch,
+  Sparkles,
+  Tag,
+} from "lucide-react";
+import type { AnalysisReport } from "@/lib/types";
+import ActionChecklist from "@/components/ActionChecklist";
+import NoticeLetterModal from "@/components/NoticeLetterModal";
+
+interface ResultReportProps {
+  report: AnalysisReport;
+}
+
+function gaugeColor(rate: number) {
+  if (rate >= 70) return { stroke: "#34d399", text: "text-emerald-400", label: "구제 가능성 높음" };
+  if (rate >= 40) return { stroke: "#fbbf24", text: "text-amber-400", label: "구제 가능성 보통" };
+  return { stroke: "#f87171", text: "text-rose-400", label: "구제 가능성 낮음" };
+}
+
+function SuccessGauge({ rate }: { rate: number }) {
+  const radius = 76;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.min(100, Math.max(0, rate));
+  const offset = circumference * (1 - clamped / 100);
+  const { stroke, text, label } = gaugeColor(clamped);
+
+  return (
+    <div className="flex flex-col items-center justify-center">
+      <div className="relative h-44 w-44">
+        <svg className="h-full w-full -rotate-90" viewBox="0 0 176 176">
+          <circle
+            cx="88"
+            cy="88"
+            r={radius}
+            fill="none"
+            stroke="rgba(255,255,255,0.08)"
+            strokeWidth="14"
+          />
+          <motion.circle
+            cx="88"
+            cy="88"
+            r={radius}
+            fill="none"
+            stroke={stroke}
+            strokeWidth="14"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            initial={{ strokeDashoffset: circumference }}
+            animate={{ strokeDashoffset: offset }}
+            transition={{ duration: 1, ease: "easeOut" }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-4xl font-bold text-white">{clamped.toFixed(1)}%</span>
+          <span className="mt-1 text-[11px] font-medium text-slate-400">구제 성공 확률</span>
+        </div>
+      </div>
+      <p className={`mt-3 text-sm font-semibold ${text}`}>{label}</p>
+    </div>
+  );
+}
+
+export default function ResultReport({ report }: ResultReportProps) {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      className="space-y-4"
+    >
+      {report.used_fallback && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-xs text-amber-200">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          OPENAI_API_KEY가 설정되지 않아 규칙 기반 폴백 리포트로 생성되었습니다. .env.local에 키를 등록하면 GPT-4o mini
+          에이전트가 결과를 생성합니다.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-card lg:col-span-2">
+          <SuccessGauge rate={report.success_rate} />
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <span className="flex items-center gap-1.5 rounded-full border border-brand-400/30 bg-brand-500/10 px-3 py-1.5 text-xs font-medium text-brand-200">
+              <Tag className="h-3.5 w-3.5" />
+              {report.category}
+            </span>
+            <span className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300">
+              <ScanSearch className="h-3.5 w-3.5" />
+              {report.dispute_type}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-4 lg:col-span-3">
+          <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-5 shadow-card sm:p-6">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-100">
+              <Gavel className="h-4 w-4 text-brand-400" />
+              법적 기준 요약
+            </div>
+            <p className="text-sm leading-relaxed text-slate-300">{report.legal_basis}</p>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-5 shadow-card sm:p-6">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-100">
+              <Percent className="h-4 w-4 text-brand-400" />
+              예상 환급 범위
+            </div>
+            <p className="text-lg font-bold text-emerald-300">{report.estimated_refund}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-5 shadow-card sm:p-6">
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-100">
+          <Layers className="h-4 w-4 text-brand-400" />
+          과거 유사 사례 Top-3
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {report.similar_cases.map((c, idx) => (
+            <div
+              key={idx}
+              className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-xs"
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <span className="font-semibold text-slate-200">{c.category}</span>
+                <span className="rounded-full bg-brand-500/15 px-2 py-0.5 font-medium text-brand-300">
+                  유사도 {c.similarity}%
+                </span>
+              </div>
+              <p className="mb-1.5 text-slate-400">{c.dispute_type}</p>
+              <p className="text-slate-500">처리결과: {c.outcome}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <ActionChecklist actionPlan={report.action_plan} proofDocuments={report.proof_documents} />
+
+      <button
+        onClick={() => setModalOpen(true)}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand-400/30 bg-brand-500/10 py-3.5 text-sm font-semibold text-brand-200 transition hover:bg-brand-500/20"
+      >
+        <Sparkles className="h-4 w-4" />
+        맞춤형 내용증명 확인 및 복사하기
+      </button>
+
+      <NoticeLetterModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        template={report.notice_letter_template}
+      />
+    </motion.div>
+  );
+}
