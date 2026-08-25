@@ -34,6 +34,14 @@ const EMBEDDING_MODEL = "text-embedding-3-small";
 const TOP_K = 2;
 /** ML이 예측한 카테고리와 일치하는 청크에 부여하는 가중치 (명세서 5.2) */
 const CATEGORY_MATCH_BOOST = 0.08;
+/**
+ * 청크의 keywords가 사용자 입력(분쟁유형/상담 텍스트)에 등장할 때마다 부여하는
+ * 가중치. 순수 임베딩 코사인 유사도만으로는 같은 카테고리 내 비슷한 길이/어조의
+ * 조항끼리 순위가 뒤바뀌는 경우가 있어(예: "천재지변" 키워드가 명시된 조항이
+ * 무관한 "폐업" 조항보다 낮은 점수를 받는 사례 확인), 키워드 일치라는 명시적
+ * 어휘 신호를 더해 하이브리드 검색으로 보정한다.
+ */
+const KEYWORD_MATCH_BOOST = 0.035;
 
 let cachedChunks: EmbeddedChunk[] | null | undefined;
 
@@ -94,10 +102,13 @@ export async function retrieveLegalClauses(
     const queryVector = res.data[0]?.embedding;
     if (!queryVector) return null;
 
+    const haystack = `${ml.dispute_type} ${ml.input.text}`;
     const scored = chunks.map((chunk) => {
       const similarity = cosineSimilarity(queryVector, chunk.embedding);
-      const boost = chunk.category === ml.category ? CATEGORY_MATCH_BOOST : 0;
-      return { chunk, score: similarity + boost };
+      const categoryBoost = chunk.category === ml.category ? CATEGORY_MATCH_BOOST : 0;
+      const keywordMatches = chunk.keywords.filter((kw) => haystack.includes(kw)).length;
+      const keywordBoost = keywordMatches * KEYWORD_MATCH_BOOST;
+      return { chunk, score: similarity + categoryBoost + keywordBoost };
     });
 
     scored.sort((a, b) => b.score - a.score);
