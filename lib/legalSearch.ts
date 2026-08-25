@@ -42,6 +42,15 @@ const CATEGORY_MATCH_BOOST = 0.08;
  * 어휘 신호를 더해 하이브리드 검색으로 보정한다.
  */
 const KEYWORD_MATCH_BOOST = 0.035;
+/**
+ * api/ml_engine/predictor.py의 _LOW_CONFIDENCE_THRESHOLD(0.35), app/api/agent/route.ts의
+ * ML_LOW_CONFIDENCE_WARNING_THRESHOLD와 같은 기준(%). 이 미만이면 ml.category/dispute_type
+ * 자체가 무관한 K-Means 군집에서 나온 오분류일 수 있다(실사례: "이어폰 환불 가능?"이
+ * "학원/교육서비스"로 분류됨). 이 경우 검색 쿼리와 카테고리 가중치에 그 오분류를 그대로
+ * 쓰면 완전히 무관한 법령 조항(예: 학원 환급 규정)이 검색되므로, 신뢰도가 낮을 때는
+ * category/dispute_type을 배제하고 사용자 원문 텍스트만으로 검색한다.
+ */
+const LOW_CONFIDENCE_THRESHOLD = 35;
 
 let cachedChunks: EmbeddedChunk[] | null | undefined;
 
@@ -97,15 +106,19 @@ export async function retrieveLegalClauses(
 
   try {
     const client = getOpenAIClient();
-    const query = `[${ml.category}] ${ml.dispute_type}\n${ml.input.text}`;
+    const isCategoryReliable = ml.confidence >= LOW_CONFIDENCE_THRESHOLD;
+    const query = isCategoryReliable
+      ? `[${ml.category}] ${ml.dispute_type}\n${ml.input.text}`
+      : ml.input.text;
     const res = await client.embeddings.create({ model: EMBEDDING_MODEL, input: query });
     const queryVector = res.data[0]?.embedding;
     if (!queryVector) return null;
 
-    const haystack = `${ml.dispute_type} ${ml.input.text}`;
+    const haystack = isCategoryReliable ? `${ml.dispute_type} ${ml.input.text}` : ml.input.text;
     const scored = chunks.map((chunk) => {
       const similarity = cosineSimilarity(queryVector, chunk.embedding);
-      const categoryBoost = chunk.category === ml.category ? CATEGORY_MATCH_BOOST : 0;
+      const categoryBoost =
+        isCategoryReliable && chunk.category === ml.category ? CATEGORY_MATCH_BOOST : 0;
       const keywordMatches = chunk.keywords.filter((kw) => haystack.includes(kw)).length;
       const keywordBoost = keywordMatches * KEYWORD_MATCH_BOOST;
       return { chunk, score: similarity + categoryBoost + keywordBoost };

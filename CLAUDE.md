@@ -137,6 +137,20 @@ npm run dev
   dispute_type/유사사례를 사실로 취급하지 말고 오직 [사용자 입력] 원문만 근거로 삼도록
   강제한다. 시스템 프롬프트에도 legal_basis/estimated_refund와 certainty_level 계열이
   서로 모순되면 안 된다는 정합성 규칙을 별도로 추가했다.
+  - **후속 수정**: 위 조치만으로는 부족했다 — `ml.category` 자체가 저신뢰도 오분류일 때
+    (1) `lib/legalSearch.ts`가 RAG 검색 쿼리에 `[ml.category] ml.dispute_type`을 그대로
+    포함하고 `CATEGORY_MATCH_BOOST`도 그 category로 주는 바람에 검색 자체가 엉뚱한
+    카테고리 조항으로 편향됐고, (2) `buildPrompt()`가 `LEGAL_KNOWLEDGE[ml.category]`로
+    `legal_basis`/`estimated_refund`의 고정 참고자료를 조회해 "이어폰 환불" 질문에
+    "학원비 환급" 규정이 그대로 노출되는 문제가 실사용 중 재발했다. 두 곳 모두
+    신뢰도<35%일 때는 category/dispute_type을 배제하고 사용자 원문 텍스트만 쓰도록
+    고쳤다(`legalSearch.ts`의 `isCategoryReliable`, `buildPrompt()`의 `knowledge` 조회를
+    `DEFAULT_LEGAL_KNOWLEDGE`로 강제).
+  - **UI**: `ResultReport.tsx`의 게이지에서 "85.0%" 같은 % 숫자 표시를 완전히 제거했다
+    (`certainty_level`이 있으면 등급 텍스트만, 없으면(`ml_similarity`) `gaugeColor()`의
+    3단계 정성적 라벨("구제 가능성 높음/보통/낮음")만 표시 — 어느 경로든 정밀해 보이는
+    숫자를 보여주지 않는다). 링의 채움 정도(시각적 진행률)는 내부적으로 여전히 숫자
+    `success_rate`를 쓰지만 텍스트로는 노출하지 않는다.
 - 새 카테고리를 추가/변경하면 `lib/legalKnowledge.ts`와 `components/DisputeForm.tsx`의
   `CATEGORY_OPTIONS`도 함께 갱신해야 한다 (세 곳의 카테고리 문자열이 일치해야 함).
 

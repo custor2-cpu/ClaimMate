@@ -165,7 +165,13 @@ function computeElapsedDays(dateStr: string | null): number | null {
 }
 
 function buildPrompt(ml: MLAnalysisResult, retrievedClauses: ReferencedClause[] | null) {
-  const knowledge = LEGAL_KNOWLEDGE[ml.category] ?? DEFAULT_LEGAL_KNOWLEDGE;
+  const isMlUnreliable = ml.confidence < ML_LOW_CONFIDENCE_WARNING_THRESHOLD;
+  // ml.category 자체가 저신뢰도 오분류일 수 있으면 그 카테고리로 고정 지식을 조회하지
+  // 않는다("이어폰" 질문에 "학원/교육서비스" 카테고리의 참고자료가 섞여 나온 문제 수정).
+  // 이 경우 일반 원칙(DEFAULT_LEGAL_KNOWLEDGE)만 참고자료로 쓴다.
+  const knowledge = isMlUnreliable
+    ? DEFAULT_LEGAL_KNOWLEDGE
+    : LEGAL_KNOWLEDGE[ml.category] ?? DEFAULT_LEGAL_KNOWLEDGE;
   const todayStr = new Date().toISOString().slice(0, 10);
   const elapsedDays = computeElapsedDays(ml.input.date);
 
@@ -248,8 +254,6 @@ Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하�
   괄호 안 플레이스홀더만 채우면 되도록 작성하세요. 사용자가 입력한 상담 내용, 결제금액, 계약일자를 본문에 자연스럽게 반영하세요.
 - 모든 문장은 한국어 존댓말로, 전문적이고 신뢰감 있는 톤으로 작성하세요.
 - 참고 법적 근거는 정보 제공 목적이며 실제 법률 자문이 아님을 감안하여 과장 없이 작성하세요.`;
-
-  const isMlUnreliable = ml.confidence < ML_LOW_CONFIDENCE_WARNING_THRESHOLD;
 
   const user = `[ML 분석 결과]${
     isMlUnreliable

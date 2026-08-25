@@ -30,39 +30,27 @@ function gaugeColor(rate: number) {
 
 /**
  * 법령 근거로 재산정된(success_rate_basis === "legal_reasoning") 경우, "85.0%" 같은
- * 정밀해 보이는 단일 숫자 대신 등급을 1차 정보로 보여준다 — 등급이 근거이고 %는
- * 그 등급에 종속된 참고 범위라는 걸 시각적으로도 드러내기 위함.
+ * 정밀해 보이는 단일 숫자 대신 등급 텍스트 자체를 1차 정보로 보여준다(% 표시 없음).
  */
-const CERTAINTY_STYLES: Record<
-  CertaintyLevel,
-  { stroke: string; text: string; label: string; range: string; badgeClass: string }
-> = {
+const CERTAINTY_STYLES: Record<CertaintyLevel, { stroke: string; text: string; badgeClass: string }> = {
   "매우 높음": {
     stroke: "#34d399",
     text: "text-emerald-400",
-    label: "구제 가능성 매우 높음",
-    range: "95~99%",
     badgeClass: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
   },
   높음: {
     stroke: "#34d399",
     text: "text-emerald-400",
-    label: "구제 가능성 높음",
-    range: "75~90%",
     badgeClass: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
   },
   "조정 필요": {
     stroke: "#fbbf24",
     text: "text-amber-400",
-    label: "협의·조정 필요",
-    range: "40~65%",
     badgeClass: "border-amber-400/30 bg-amber-500/10 text-amber-300",
   },
   "구제 어려움": {
     stroke: "#f87171",
     text: "text-rose-400",
-    label: "구제 가능성 낮음",
-    range: "10~30%",
     badgeClass: "border-rose-400/30 bg-rose-500/10 text-rose-300",
   },
 };
@@ -85,7 +73,10 @@ function SuccessGauge({
 
   const isLegalGrade = basis === "legal_reasoning" && Boolean(certaintyLevel);
   const grade = certaintyLevel ? CERTAINTY_STYLES[certaintyLevel] : null;
-  const { stroke, text, label } = grade ?? gaugeColor(clamped);
+  const mlGauge = gaugeColor(clamped);
+  const stroke = grade?.stroke ?? mlGauge.stroke;
+  const text = grade?.text ?? mlGauge.text;
+  const label = mlGauge.label;
 
   return (
     <div className="flex flex-col items-center justify-center">
@@ -116,23 +107,20 @@ function SuccessGauge({
         <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
           {isLegalGrade && grade ? (
             <>
-              <span className="text-2xl font-bold leading-tight text-white">{certaintyLevel}</span>
-              <span className="mt-1 text-[11px] font-medium text-slate-400">
-                참고 범위 {grade.range}
-              </span>
+              <span className={`text-2xl font-bold leading-tight ${text}`}>{certaintyLevel}</span>
+              <span className="mt-1 text-[11px] font-medium text-slate-400">법령 근거 기반 추정</span>
             </>
           ) : (
             <>
-              <span className="text-4xl font-bold text-white">{clamped.toFixed(1)}%</span>
-              <span className="mt-1 text-[11px] font-medium text-slate-400">구제 성공 확률</span>
+              <span className={`text-2xl font-bold leading-tight ${text}`}>{label}</span>
+              <span className="mt-1 text-[11px] font-medium text-slate-400">과거 유사사례 통계 기반</span>
             </>
           )}
         </div>
       </div>
-      <p className={`mt-3 text-sm font-semibold ${text}`}>{label}</p>
       {isLegalGrade && grade && (
         <span
-          className={`mt-2 flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium ${grade.badgeClass}`}
+          className={`mt-3 flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium ${grade.badgeClass}`}
           title={reasoning || undefined}
         >
           <Scale className="h-3 w-3" />
