@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOpenAIClient, OPENAI_MODEL } from "@/lib/openai";
 import { buildFallbackReport } from "@/lib/fallbackAgent";
 import { DEFAULT_LEGAL_KNOWLEDGE, LEGAL_KNOWLEDGE } from "@/lib/legalKnowledge";
-import type { AgentReport, AnalysisReport, MLAnalysisResult } from "@/lib/types";
+import { retrieveLegalClauses } from "@/lib/legalSearch";
+import type { AgentReport, AnalysisReport, MLAnalysisResult, ReferencedClause } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,22 @@ const AGENT_JSON_SCHEMA = {
       legal_basis: {
         type: "string",
         description: "공정거래위원회 소비자분쟁해결기준 등 법적 근거 요약",
+      },
+      referenced_clauses: {
+        type: "array",
+        description:
+          "RAG로 검색된 법령 조항 인용 목록. [REFERENCE LEGAL CONTEXT]에 제공된 조항만 " +
+          "그대로 인용하고, 제공된 근거가 없으면 빈 배열로 둔다.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            law_name: { type: "string", description: "인용 법령/고시명" },
+            clause_content: { type: "string", description: "조항 원문 요약" },
+            formula: { type: "string", description: "환급/위약금 산정식 (없으면 빈 문자열)" },
+          },
+          required: ["law_name", "clause_content", "formula"],
+        },
       },
       estimated_refund: { type: "string", description: "예상 환급 범위" },
       action_plan: {
@@ -41,6 +58,7 @@ const AGENT_JSON_SCHEMA = {
       "dispute_type",
       "success_rate",
       "legal_basis",
+      "referenced_clauses",
       "estimated_refund",
       "action_plan",
       "proof_documents",
@@ -49,8 +67,22 @@ const AGENT_JSON_SCHEMA = {
   },
 } as const;
 
-function buildPrompt(ml: MLAnalysisResult) {
+function buildPrompt(ml: MLAnalysisResult, retrievedClauses: ReferencedClause[] | null) {
   const knowledge = LEGAL_KNOWLEDGE[ml.category] ?? DEFAULT_LEGAL_KNOWLEDGE;
+
+  const referenceContext =
+    retrievedClauses && retrievedClauses.length > 0
+      ? `[REFERENCE LEGAL CONTEXT] (RAG 검색 결과 — 아래 조항만 인용하고, 여기 없는 법령명이나
+산정식을 임의로 만들어내지 마세요)
+${retrievedClauses
+  .map(
+    (c, i) =>
+      `${i + 1}. [${c.law_name}] ${c.clause_content}${
+        c.formula && !c.formula.startsWith("해당 없음") ? ` (산정식: ${c.formula})` : ""
+      }`
+  )
+  .join("\n")}`
+      : `[REFERENCE LEGAL CONTEXT] 없음 — referenced_clauses는 빈 배열로 두세요.`;
 
   const system = `당신은 한국소비자원 소비자상담 데이터를 기반으로 학습된 소비자분쟁 해결 전문 AI 에이전트 "ClaimMate"입니다.
 Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하여, 공정거래위원회 고시 「소비자분쟁해결기준」에 근거한
@@ -59,6 +91,9 @@ Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하�
 규칙:
 - success_rate는 ML 모델이 산출한 값(${ml.success_rate})을 그대로 사용하세요.
 - legal_basis와 estimated_refund는 아래 제공된 참고 법적 근거를 기반으로 사안에 맞게 구체화하세요.
+- referenced_clauses는 반드시 [REFERENCE LEGAL CONTEXT]에 제공된 조항만 그대로(법령명/산정식 왜곡 없이)
+  인용하세요. 제공된 근거가 없다고 명시된 경우 referenced_clauses는 빈 배열([])로 두세요. 이 필드에서
+  법령을 상상해서 만들어내는 것(hallucination)은 절대 금지입니다.
 - action_plan은 "1단계:", "2단계:" 형식으로 실제로 실행 가능한 절차를 3~5단계로 작성하세요.
 - proof_documents는 참고 자료를 바탕으로 사안에 맞게 3~5개 항목으로 작성하세요.
 - notice_letter_template은 실제 발송 가능한 내용증명 형식(수신/발신/제목/본문/날짜)으로, 소비자가 [사업자 상호], [소비자 성명] 등
@@ -80,6 +115,8 @@ Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하�
 - 예상 환급 범위 참고: ${knowledge.estimated_refund}
 - 참고 증빙 자료: ${knowledge.proof_documents.join(", ")}
 
+${referenceContext}
+
 [사용자 입력]
 - 상담 내용: ${ml.input.text}
 - 피해 금액: ${ml.input.amount ? `${ml.input.amount.toLocaleString("ko-KR")}원` : "미입력"}
@@ -90,9 +127,12 @@ Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하�
   return { system, user };
 }
 
-async function generateWithOpenAI(ml: MLAnalysisResult): Promise<AgentReport> {
+async function generateWithOpenAI(
+  ml: MLAnalysisResult,
+  retrievedClauses: ReferencedClause[] | null
+): Promise<AgentReport> {
   const client = getOpenAIClient();
-  const { system, user } = buildPrompt(ml);
+  const { system, user } = buildPrompt(ml, retrievedClauses);
 
   const completion = await client.chat.completions.create({
     model: OPENAI_MODEL,
@@ -133,7 +173,8 @@ export async function POST(req: NextRequest) {
       if (!process.env.OPENAI_API_KEY) {
         throw new Error("OPENAI_API_KEY 미설정");
       }
-      report = await generateWithOpenAI(ml);
+      const retrievedClauses = await retrieveLegalClauses(ml);
+      report = await generateWithOpenAI(ml, retrievedClauses);
     } catch (err) {
       console.warn("[/api/agent] OpenAI 호출 실패, 규칙 기반 폴백으로 대체합니다:", err);
       report = buildFallbackReport(ml);

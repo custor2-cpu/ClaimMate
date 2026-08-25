@@ -35,12 +35,20 @@ export interface MLAnalysisResult {
   error?: string;
 }
 
+/** RAG로 검색된 법령 조항 인용 (docs/SPEC_RAG.md 4.) */
+export interface ReferencedClause {
+  law_name: string;
+  clause_content: string;
+  formula: string;
+}
+
 /** /api/agent (OpenAI LLM Agent) 최종 구조화 응답 — 명세서 4.1 JSON 스키마 */
 export interface AgentReport {
   category: string;
   dispute_type: string;
   success_rate: number;
   legal_basis: string;
+  referenced_clauses: ReferencedClause[];
   estimated_refund: string;
   action_plan: string[];
   proof_documents: string[];

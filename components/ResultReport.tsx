@@ -4,6 +4,8 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
+  BookOpen,
+  ChevronDown,
   Gavel,
   Layers,
   Percent,
@@ -119,6 +121,36 @@ export default function ResultReport({ report }: ResultReportProps) {
           </div>
         </div>
       </div>
+
+      {report.referenced_clauses && report.referenced_clauses.length > 0 && (
+        <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-5 shadow-card sm:p-6">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <BookOpen className="h-4 w-4 text-brand-400" />
+            인용 법령 조항 (RAG 검색 결과)
+          </div>
+          <div className="space-y-2">
+            {report.referenced_clauses.map((c, idx) => (
+              <details
+                key={idx}
+                className="group rounded-xl border border-white/10 bg-white/[0.02] p-3 text-sm open:bg-white/[0.04]"
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-slate-200">
+                  <span className="rounded-full bg-brand-500/15 px-2.5 py-1 text-[11px] font-medium text-brand-300">
+                    {c.law_name}
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-slate-500 transition group-open:rotate-180" />
+                </summary>
+                <p className="mt-2.5 leading-relaxed text-slate-400">{c.clause_content}</p>
+                {c.formula && !c.formula.startsWith("해당 없음") && (
+                  <p className="mt-2 rounded-lg bg-slate-950/60 px-2.5 py-1.5 font-mono text-xs text-emerald-300">
+                    산정식: {c.formula}
+                  </p>
+                )}
+              </details>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-5 shadow-card sm:p-6">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-100">

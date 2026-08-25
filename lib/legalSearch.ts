@@ -1,0 +1,114 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { getOpenAIClient } from "@/lib/openai";
+import type { MLAnalysisResult, ReferencedClause } from "@/lib/types";
+
+/**
+ * docs/SPEC_RAG.md 기반 경량 RAG 검색 엔진.
+ * scripts/build_legal_kb.py가 생성한 사전 임베딩 지식베이스(legal_kb_embedded.json)를
+ * 읽어 코사인 유사도로 관련 법령 조항 Top-2를 검색한다. 외부 벡터 DB 없이 로컬 JSON +
+ * 브루트포스 코사인 유사도만 사용한다 (지식베이스가 수십 건 규모라 충분히 빠르다).
+ */
+
+interface LegalKbChunk {
+  id: string;
+  category: string;
+  topic: string;
+  law_name: string;
+  clause_summary: string;
+  refund_formula: string;
+  keywords: string[];
+}
+
+interface EmbeddedChunk extends LegalKbChunk {
+  embedding: number[];
+}
+
+const EMBEDDED_KB_PATH = path.join(
+  process.cwd(),
+  "lib",
+  "knowledge_base",
+  "legal_kb_embedded.json"
+);
+const EMBEDDING_MODEL = "text-embedding-3-small";
+const TOP_K = 2;
+/** ML이 예측한 카테고리와 일치하는 청크에 부여하는 가중치 (명세서 5.2) */
+const CATEGORY_MATCH_BOOST = 0.08;
+
+let cachedChunks: EmbeddedChunk[] | null | undefined;
+
+function loadEmbeddedChunks(): EmbeddedChunk[] | null {
+  if (cachedChunks !== undefined) return cachedChunks;
+
+  if (!existsSync(EMBEDDED_KB_PATH)) {
+    console.warn(
+      "[legalSearch] legal_kb_embedded.json이 없습니다. " +
+        "`python scripts/build_legal_kb.py`로 지식베이스를 먼저 빌드해 주세요. " +
+        "빌드 전까지는 정적 legalKnowledge.ts로 폴백합니다."
+    );
+    cachedChunks = null;
+    return null;
+  }
+
+  try {
+    cachedChunks = JSON.parse(readFileSync(EMBEDDED_KB_PATH, "utf-8")) as EmbeddedChunk[];
+  } catch (err) {
+    console.warn("[legalSearch] legal_kb_embedded.json 파싱 실패:", err);
+    cachedChunks = null;
+  }
+  return cachedChunks;
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+/**
+ * ML 분석 결과(상담 텍스트 + 예측 카테고리)를 바탕으로 사전 임베딩된 법령
+ * 지식베이스에서 관련도 상위 Top-2 조항을 검색한다.
+ *
+ * 지식베이스 미빌드(legal_kb_embedded.json 없음), OPENAI_API_KEY 미설정, 임베딩
+ * API 호출 실패 등 어떤 이유로든 검색이 불가능하면 null을 반환해 호출부가 기존
+ * 정적 legalKnowledge.ts 기반 폴백을 쓰도록 한다 (명세서 6. 무중단성 보장).
+ */
+export async function retrieveLegalClauses(
+  ml: MLAnalysisResult
+): Promise<ReferencedClause[] | null> {
+  const chunks = loadEmbeddedChunks();
+  if (!chunks || chunks.length === 0) return null;
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  try {
+    const client = getOpenAIClient();
+    const query = `[${ml.category}] ${ml.dispute_type}\n${ml.input.text}`;
+    const res = await client.embeddings.create({ model: EMBEDDING_MODEL, input: query });
+    const queryVector = res.data[0]?.embedding;
+    if (!queryVector) return null;
+
+    const scored = chunks.map((chunk) => {
+      const similarity = cosineSimilarity(queryVector, chunk.embedding);
+      const boost = chunk.category === ml.category ? CATEGORY_MATCH_BOOST : 0;
+      return { chunk, score: similarity + boost };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    return scored.slice(0, TOP_K).map(({ chunk }) => ({
+      law_name: chunk.law_name,
+      clause_content: chunk.clause_summary,
+      formula: chunk.refund_formula,
+    }));
+  } catch (err) {
+    console.warn("[legalSearch] RAG 검색 실패, 정적 지식베이스로 폴백합니다:", err);
+    return null;
+  }
+}

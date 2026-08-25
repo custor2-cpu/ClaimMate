@@ -44,6 +44,8 @@ ${new Date().toISOString().slice(0, 10)}
     dispute_type: ml.dispute_type,
     success_rate: ml.success_rate,
     legal_basis: knowledge.legal_basis,
+    // 규칙 기반 폴백은 RAG 검색을 수행하지 않으므로(OpenAI 호출 자체가 없음) 빈 배열로 둔다.
+    referenced_clauses: [],
     estimated_refund: knowledge.estimated_refund,
     action_plan,
     proof_documents: knowledge.proof_documents,
