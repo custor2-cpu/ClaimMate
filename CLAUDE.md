@@ -73,12 +73,12 @@ npm run dev
 공공데이터 표본 부족(특히 체육시설/헬스장·화장품/미용·부동산/임대차·식품·여행/숙박처럼
 실 사례가 적은 카테고리)으로, 실제로는 환급 사유가 명확한데도 ML의 `success_rate`
 (분류 신뢰도 + 유사사례 평균 가중치)가 낮게 나오는 경우가 있다. `app/api/agent/route.ts`는
-이를 보정하기 위해, **ML의 `success_rate`가 낮고(<50%, `route.ts`의
-`LOW_SUCCESS_RATE_THRESHOLD`) RAG로 법령 조항이 검색된 경우**, LLM이
+이를 보정하기 위해, RAG로 법령 조항이 검색되면 LLM이 항상
 `[REFERENCE LEGAL CONTEXT]`의 조항을 사용자가 명시한 사실관계와 하나하나 대조해 법적
-타당성을 직접 판단하고, 그 결과(`legal_success_estimate`)가 ML 값과 의미 있게 다를 때만
-`success_rate`를 그 값으로 대체한다(`resolveSuccessRate()`). 조건이 안 맞거나 LLM이 근거
-부족으로 ML 값과 동일한 값을 반환하면 항상 ML 산출값을 그대로 쓴다(과장 방지). 최종
+타당성을 직접 판단하고(`legal_success_estimate`), 그 값이 ML 값보다
+`MIN_LEGAL_OVERRIDE_MARGIN`(10%p) 이상 높을 때만 `success_rate`를 그 값으로
+대체한다(`resolveSuccessRate()`, 상향 전용). 조건이 안 맞거나 LLM이 근거 부족으로 ML 값과
+동일한 값을 반환하면 항상 ML 산출값을 그대로 쓴다(과장 방지). 최종
 값의 출처는 `success_rate_basis`(`"ml_similarity"` | `"legal_reasoning"`) 필드로 표시되며,
 `ResultReport.tsx`가 `legal_reasoning`일 때 게이지 아래에 "법령 근거 기반 추정" 배지를
 보여준다.
@@ -106,6 +106,14 @@ npm run dev
   한다. 또한 `legal_success_estimate`는 "위약금율/공제율"이 아니라 "소비자 주장이 받아들여질
   확률"이라는 걸 명시하지 않으면, 모델이 조항 속 숫자(예: "위약금 10%")를 그대로 성공확률에
   넣는 오류가 관찰되었다(temperature를 0.4→0.2로 낮춰 이 재산정의 실행 간 일관성도 확보함).
+- `date`(결제/계약 일자) 반영: 이전에는 이 필드가 `ml.input.date`로 저장만 되고 ML
+  분류/성공확률 계산과 LLM 프롬프트 어디에도 실질적으로 쓰이지 않았다("오늘 날짜" 자체가
+  프롬프트에 없어 LLM이 경과일수를 계산할 수 없었음). `buildPrompt()`가 이제
+  `computeElapsedDays()`로 계약일로부터 경과일수를 계산해 "오늘 날짜"와 함께 프롬프트에
+  명시하고, 이를 "7일 이내 청약철회" 같은 시간 기준 법령 조건 판단에 쓰도록 지시한다.
+  같은 상담 문장이라도 날짜만 다르면(예: 3일 전 vs 55일 전) `success_rate` 재산정 여부가
+  실제로 달라지는 것을 확인했다. ML 분류 자체(`predictor.py`)에는 여전히 `date`가
+  전달되지 않는다 — 반영 범위는 LLM 리포트 생성 단계로 한정된다.
 - 새 카테고리를 추가/변경하면 `lib/legalKnowledge.ts`와 `components/DisputeForm.tsx`의
   `CATEGORY_OPTIONS`도 함께 갱신해야 한다 (세 곳의 카테고리 문자열이 일치해야 함).
 

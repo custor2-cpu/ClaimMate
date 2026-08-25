@@ -99,8 +99,24 @@ const AGENT_JSON_SCHEMA = {
   },
 } as const;
 
+/**
+ * ml.input.date(결제/계약 일자)로부터 오늘까지 경과일수를 계산한다. "7일 이내 청약철회",
+ * "이용 개시 이전(=계약 후 상당 기간 미이용)" 같은 시간 기준 법령 조건은 이 경과일수 없이는
+ * LLM이 판단할 근거가 없다 — 이전에는 오늘 날짜 자체가 프롬프트에 없어 date 필드가 있어도
+ * 사실상 장식적인 값이었다.
+ */
+function computeElapsedDays(dateStr: string | null): number | null {
+  if (!dateStr) return null;
+  const contractDate = new Date(dateStr);
+  if (Number.isNaN(contractDate.getTime())) return null;
+  const msPerDay = 1000 * 60 * 60 * 24;
+  return Math.floor((Date.now() - contractDate.getTime()) / msPerDay);
+}
+
 function buildPrompt(ml: MLAnalysisResult, retrievedClauses: ReferencedClause[] | null) {
   const knowledge = LEGAL_KNOWLEDGE[ml.category] ?? DEFAULT_LEGAL_KNOWLEDGE;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const elapsedDays = computeElapsedDays(ml.input.date);
 
   const referenceContext =
     retrievedClauses && retrievedClauses.length > 0
@@ -126,11 +142,16 @@ Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하�
 
 규칙:
 - success_rate는 ML 모델이 산출한 값(${ml.success_rate})을 그대로 사용하세요.
+- [사용자 입력]의 "결제/계약 일자(오늘 기준 N일 경과)"는 서버가 계산한 객관적 사실이므로,
+  "n일 이내", "이용 개시 이전" 같은 시간 기준 법령 조건을 판단할 때 그대로 신뢰해 사용하세요
+  (사용자의 주장/추측이 아닙니다). 다만 상담 내용에 "취소 요청일"이 계약일과 다르게 별도로
+  언급되어 있으면(예: "한 달 전에 가입했고 어제 취소 요청했다") 상담 내용에 명시된 시점을
+  우선하세요.
 - legal_success_estimate/legal_success_reasoning: 공공데이터 표본 부족으로 ML의
   success_rate(${ml.success_rate}%)가 실제 법적 타당성보다 낮게 나왔을 수 있습니다. ML 값의
   높고 낮음과 무관하게 항상 아래 판단을 하세요.
   [REFERENCE LEGAL CONTEXT] 조항의 적용 조건이 사용자 "본인의 상황"에 대한 진술(무엇을
-  했는지/안 했는지, 언제·왜 취소했는지 등)로 충족되면, legal_success_estimate를 그 법적
+  했는지/안 했는지, 언제·왜 취소했는지 등, 위 경과일수 포함)로 충족되면, legal_success_estimate를 그 법적
   판단에 따라 독립적으로 산정하세요. 이 값은 "위약금 비율"이 아니라 "소비자 주장이 받아들여질
   확률"이므로, 법이 소비자에게 명확히 유리하면 80~95 같은 높은 값을 넣으세요 (예: "가입 후
   이틀, 한 번도 이용 안 함" + 조항 "이용 개시 이전엔 위약금 10% 이내만 공제" → 사업자가 요구한
@@ -170,11 +191,15 @@ Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하�
 ${referenceContext}
 
 [사용자 입력]
+- 오늘 날짜: ${todayStr}
 - 상담 내용: ${ml.input.text}
 - 피해 금액: ${ml.input.amount ? `${ml.input.amount.toLocaleString("ko-KR")}원` : "미입력"}
-- 결제/계약 일자: ${ml.input.date ?? "미입력"}
+- 결제/계약 일자: ${ml.input.date ?? "미입력"}${
+    elapsedDays !== null ? ` (오늘 기준 ${elapsedDays}일 경과)` : ""
+  }
 
-위 정보를 종합하여 ClaimMate 리포트 JSON을 생성하세요.`;
+위 정보를 종합하여 ClaimMate 리포트 JSON을 생성하세요. notice_letter_template의 발신 날짜는
+"오늘 날짜"를 사용하세요.`;
 
   return { system, user };
 }
