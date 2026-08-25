@@ -43,6 +43,16 @@ const CERTAINTY_RANGES: Record<CertaintyLevel, [number, number]> = {
   "구제 어려움": [10, 30],
 };
 
+/**
+ * api/ml_engine/predictor.py의 _LOW_CONFIDENCE_THRESHOLD(0.35)와 같은 기준(%). 이 미만이면
+ * predictor.py가 카테고리 제한 없이 K-Means 군집 전체로 검색을 넓히는데, 짧고 일반적인
+ * 입력에서는 완전히 무관한 dispute_type/similar_cases가 나올 수 있다(실사례로 확인: "이어폰
+ * 환불 가능?"이라는 입력에 "해외구매대행 신발 사이즈" 사례가 매칭됨). 이 경우 LLM이 그 잘못된
+ * dispute_type을 사실로 착각해 reasoning에 엉뚱한 내용(예: "해외 사업자라...")을 끌어오는
+ * 문제가 있어, 프롬프트에 명시적 경고를 주입해 사용자 원문만 근거로 삼도록 강제한다.
+ */
+const ML_LOW_CONFIDENCE_WARNING_THRESHOLD = 35;
+
 function clampToRange(value: number, [min, max]: [number, number]): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -215,6 +225,19 @@ Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하�
   legal_success_estimate가 success_rate보다 낮아야 한다고 판단되더라도, 이 시스템은 상향
   보정에만 쓰이므로 낮추지 말고 success_rate와 동일한 값을 넣으세요(단, certainty_level은
   실제 판단대로 정직하게 쓰세요 — 등급을 숫자에 맞춰 왜곡하지 마세요).
+- ⚠️ [ML 분석 결과]에 "분류기 신뢰도가 매우 낮습니다" 경고가 있으면, 그 아래 "분쟁 유형"과
+  "유사 사례"는 틀린 매칭일 수 있으니 사실로 취급하지 마세요. 오직 [사용자 입력]의 상담
+  내용에 실제로 적힌 내용만 근거로 legal_basis/certainty_level/legal_success_reasoning을
+  작성하세요.
+- ⚠️ 정합성(hallucination과 별개의 중요 규칙): legal_basis/estimated_refund와
+  certainty_level/legal_success_estimate/legal_success_reasoning은 같은 리포트 안에서
+  서로 모순되면 안 됩니다. 예를 들어 estimated_refund가 "전액 환급 가능"을 시사하는데
+  certainty_level이 "조정 필요"나 "구제 어려움"이면 안 됩니다. 작성을 마친 뒤 이 두 그룹의
+  내용이 서로 같은 결론을 가리키는지 스스로 점검하고, 어긋나면 정황(사용자가 실제로 명시한
+  사실)에 더 부합하는 쪽으로 양쪽을 일치시키세요. 특히 [REFERENCE LEGAL CONTEXT]나
+  유사 사례의 맥락(예: "해외 구매대행", "오배송" 등)이 사용자가 실제로 말하지 않은 내용이라면,
+  그 맥락을 reasoning에 끌어오지 말고 사용자가 실제로 입력한 [사용자 입력]의 상담 내용만
+  근거로 삼으세요.
 - legal_basis와 estimated_refund는 아래 제공된 참고 법적 근거를 기반으로 사안에 맞게 구체화하세요.
 - referenced_clauses는 반드시 [REFERENCE LEGAL CONTEXT]에 제공된 조항만 그대로(법령명/산정식 왜곡 없이)
   인용하세요. 제공된 근거가 없다고 명시된 경우 referenced_clauses는 빈 배열([])로 두세요. 이 필드에서
@@ -226,7 +249,18 @@ Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하�
 - 모든 문장은 한국어 존댓말로, 전문적이고 신뢰감 있는 톤으로 작성하세요.
 - 참고 법적 근거는 정보 제공 목적이며 실제 법률 자문이 아님을 감안하여 과장 없이 작성하세요.`;
 
-  const user = `[ML 분석 결과]
+  const isMlUnreliable = ml.confidence < ML_LOW_CONFIDENCE_WARNING_THRESHOLD;
+
+  const user = `[ML 분석 결과]${
+    isMlUnreliable
+      ? `
+⚠️ 분류기 신뢰도가 매우 낮습니다(${ml.confidence}% < ${ML_LOW_CONFIDENCE_WARNING_THRESHOLD}%).
+아래 "분쟁 유형"과 "유사 사례"는 무관한 사례로 잘못 매칭됐을 가능성이 있습니다 — 사실로
+간주하지 말고, [사용자 입력]의 상담 내용에 실제로 없는 내용(예: 해외 구매, 배송 지연 등)은
+근거로 쓰지 마세요. legal_basis/certainty_level/legal_success_reasoning은 오직 [사용자 입력]
+원문과 [REFERENCE LEGAL CONTEXT]만 근거로 판단하세요.`
+      : ""
+  }
 - 분쟁 카테고리: ${ml.category}
 - 분쟁 유형: ${ml.dispute_type}
 - 구제 성공 확률: ${ml.success_rate}% (분류기 신뢰도 ${ml.confidence}%)

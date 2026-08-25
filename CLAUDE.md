@@ -125,6 +125,18 @@ npm run dev
   같은 상담 문장이라도 날짜만 다르면(예: 3일 전 vs 55일 전) `success_rate` 재산정 여부가
   실제로 달라지는 것을 확인했다. ML 분류 자체(`predictor.py`)에는 여전히 `date`가
   전달되지 않는다 — 반영 범위는 LLM 리포트 생성 단계로 한정된다.
+- **ML 저신뢰도 경고 주입**: `ml.confidence < ML_LOW_CONFIDENCE_WARNING_THRESHOLD`(35%)이면
+  `predictor.py`가 K-Means 군집 전체로 검색을 넓히는데, 짧고 일반적인 입력에서는 완전히
+  무관한 `dispute_type`/`similar_cases`가 나올 수 있다(실사례로 확인: "이어폰 환불 가능?"
+  에 "해외구매대행 신발 사이즈" 사례가 매칭됨). 이 경우 LLM이 그 잘못된 dispute_type을
+  사실로 착각해 legal_success_reasoning에 사용자가 말한 적 없는 내용(예: "해외 사업자라
+  국내법 적용 어려움")을 끌어오면서, 동시에 `legal_basis`/`estimated_refund`(고정 참고자료
+  기반, RAG와 무관)는 정상적으로 "전액 환급 가능"이라고 써서 같은 리포트 안에서
+  `certainty_level`/`success_rate`와 정면으로 모순되는 문제가 있었다. `buildPrompt()`가
+  이 임계값 미만이면 `[ML 분석 결과]`에 "분류기 신뢰도가 매우 낮습니다" 경고를 주입해,
+  dispute_type/유사사례를 사실로 취급하지 말고 오직 [사용자 입력] 원문만 근거로 삼도록
+  강제한다. 시스템 프롬프트에도 legal_basis/estimated_refund와 certainty_level 계열이
+  서로 모순되면 안 된다는 정합성 규칙을 별도로 추가했다.
 - 새 카테고리를 추가/변경하면 `lib/legalKnowledge.ts`와 `components/DisputeForm.tsx`의
   `CATEGORY_OPTIONS`도 함께 갱신해야 한다 (세 곳의 카테고리 문자열이 일치해야 함).
 
