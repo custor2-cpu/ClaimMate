@@ -43,6 +43,9 @@ ${new Date().toISOString().slice(0, 10)}
     category: ml.category,
     dispute_type: ml.dispute_type,
     success_rate: ml.success_rate,
+    // 규칙 기반 폴백은 OpenAI를 호출하지 않으므로 법령 근거 기반 재산정도 수행하지 않는다.
+    success_rate_basis: "ml_similarity",
+    legal_success_reasoning: "규칙 기반 폴백에서는 법령 기반 재산정을 수행하지 않습니다.",
     legal_basis: knowledge.legal_basis,
     // 규칙 기반 폴백은 RAG 검색을 수행하지 않으므로(OpenAI 호출 자체가 없음) 빈 배열로 둔다.
     referenced_clauses: [],

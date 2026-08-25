@@ -9,6 +9,7 @@ import {
   Gavel,
   Layers,
   Percent,
+  Scale,
   ScanSearch,
   Sparkles,
   Tag,
@@ -27,7 +28,15 @@ function gaugeColor(rate: number) {
   return { stroke: "#f87171", text: "text-rose-400", label: "구제 가능성 낮음" };
 }
 
-function SuccessGauge({ rate }: { rate: number }) {
+function SuccessGauge({
+  rate,
+  basis,
+  reasoning,
+}: {
+  rate: number;
+  basis?: AnalysisReport["success_rate_basis"];
+  reasoning?: string;
+}) {
   const radius = 76;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.min(100, Math.max(0, rate));
@@ -66,6 +75,15 @@ function SuccessGauge({ rate }: { rate: number }) {
         </div>
       </div>
       <p className={`mt-3 text-sm font-semibold ${text}`}>{label}</p>
+      {basis === "legal_reasoning" && (
+        <span
+          className="mt-2 flex items-center gap-1.5 rounded-full border border-brand-400/30 bg-brand-500/10 px-3 py-1 text-[11px] font-medium text-brand-200"
+          title={reasoning || undefined}
+        >
+          <Scale className="h-3 w-3" />
+          법령 근거 기반 추정 (유사사례 신뢰도 낮음)
+        </span>
+      )}
     </div>
   );
 }
@@ -90,7 +108,11 @@ export default function ResultReport({ report }: ResultReportProps) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 shadow-card lg:col-span-2">
-          <SuccessGauge rate={report.success_rate} />
+          <SuccessGauge
+            rate={report.success_rate}
+            basis={report.success_rate_basis}
+            reasoning={report.legal_success_reasoning}
+          />
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <span className="flex items-center gap-1.5 rounded-full border border-brand-400/30 bg-brand-500/10 px-3 py-1.5 text-xs font-medium text-brand-200">
               <Tag className="h-3.5 w-3.5" />
