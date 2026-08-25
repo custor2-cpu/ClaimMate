@@ -1,5 +1,5 @@
 """
-Vercel Serverless Python 함수 진입점.
+Vercel Serverless Python 함수 진입점 (배포 시 /api/ml_predict 경로로 노출).
 
 Pandas/NumPy 전처리(ml_engine.cleaner) -> Scikit-learn 추론(ml_engine.predictor)
 파이프라인을 실행하여 분쟁 유형/구제 성공 확률/유사 사례를 반환한다.
@@ -8,6 +8,10 @@ Pandas/NumPy 전처리(ml_engine.cleaner) -> Scikit-learn 추론(ml_engine.predi
 1) Vercel Python Runtime: `handler` 클래스가 HTTP POST 요청을 처리한다.
 2) 로컬 개발(Next.js dev 서버): Node.js가 이 스크립트를 subprocess로 실행하고
    stdin으로 JSON을 전달하면 stdout으로 JSON 결과를 반환한다.
+
+주의: 이 파일을 app/api/analyze/route.ts와 같은 "/api/analyze" 경로로 옮기면 안 된다.
+Vercel 빌드 시 Python 함수와 Next 함수가 같은 출력 슬롯을 두고 충돌하면서
+인접한 서버리스 함수(/api/agent 등)까지 이 Python 함수로 잘못 대체되는 문제가 있었다.
 """
 
 from __future__ import annotations

@@ -7,8 +7,12 @@ ClaimMate는 소비자의 비정형 상담/피해 글을 입력받아 **Pandas/N
 
 ## 아키텍처
 1. `components/DisputeForm.tsx` — 사용자가 상담 내용/금액/일자를 입력
-2. `app/api/analyze/route.ts` — `api/analyze.py`를 subprocess로 실행하여 Pandas 전처리
-   (`api/ml_engine/cleaner.py`) + Scikit-learn 추론(`api/ml_engine/predictor.py`) 수행
+2. `app/api/analyze/route.ts` — `api/ml_predict.py`를 실행하여 Pandas 전처리
+   (`api/ml_engine/cleaner.py`) + Scikit-learn 추론(`api/ml_engine/predictor.py`) 수행.
+   로컬 개발에서는 subprocess로, Vercel 배포 환경에서는 같은 배포 내의
+   `/api/ml_predict` 서버리스 함수를 내부 HTTP 호출로 중계한다. (Python 스크립트를
+   `app/api/analyze`와 같은 `/api/analyze` 경로에 두면 빌드 시 Next 함수와 Python 함수가
+   같은 출력 슬롯을 두고 충돌해 인접 함수까지 오염되므로 반드시 경로를 분리해야 한다.)
 3. `app/api/agent/route.ts` — ML 결과를 받아 OpenAI(`gpt-4o-mini`, Structured JSON Output)로
    법적 근거/예상 환급/실행 계획/내용증명 생성. `OPENAI_API_KEY` 미설정 시
    `lib/fallbackAgent.ts`의 규칙 기반 폴백으로 자동 대체된다.
@@ -22,8 +26,8 @@ cp .env.example .env.local   # OPENAI_API_KEY 입력 (선택, 없으면 폴백 �
 npm run dev
 ```
 - `PYTHON_BIN` 환경 변수로 Python 인터프리터 경로를 지정할 수 있다 (기본: `python` → `python3` 순 탐색).
-- `python api/analyze.py`는 stdin으로 JSON을 받아 stdout으로 JSON을 반환하는 CLI로도 동작하며,
-  Vercel Python Runtime의 `handler` 클래스로도 동작한다.
+- `python api/ml_predict.py`는 stdin으로 JSON을 받아 stdout으로 JSON을 반환하는 CLI로도 동작하며,
+  Vercel Python Runtime의 `handler` 클래스로도 동작한다(배포 시 `/api/ml_predict` 경로로 노출됨).
 - **`npm run dev`와 `npm run build`를 동시에 실행하지 말 것.** 둘 다 `.next/`에 동시에 쓰기 때문에
   캐시가 깨질 수 있다(깨졌다면 dev 서버를 끄고 `.next/`를 삭제한 뒤 `npm run dev`로 재시작).
 
