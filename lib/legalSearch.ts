@@ -32,8 +32,6 @@ const EMBEDDED_KB_PATH = path.join(
 );
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const TOP_K = 2;
-/** ML이 예측한 카테고리와 일치하는 청크에 부여하는 가중치 (명세서 5.2) */
-const CATEGORY_MATCH_BOOST = 0.08;
 /**
  * 청크의 keywords가 사용자 입력(분쟁유형/상담 텍스트)에 등장할 때마다 부여하는
  * 가중치. 순수 임베딩 코사인 유사도만으로는 같은 카테고리 내 비슷한 길이/어조의
@@ -114,14 +112,21 @@ export async function retrieveLegalClauses(
     const queryVector = res.data[0]?.embedding;
     if (!queryVector) return null;
 
+    // 카테고리가 다른 조항은 순수 임베딩 유사도만으로는 걸러지지 않는 경우가 있어
+    // (예: 전자제품 하자 조항이 헬스장 위약금 조항보다 코사인 유사도가 높게 나오는
+    // 사례 확인), 신뢰도가 충분할 때는 가중치가 아니라 하드 필터로 같은 카테고리
+    // 청크만 검색 대상으로 좁힌다. 신뢰도가 낮아 category 자체가 오분류일 수 있거나
+    // 해당 카테고리에 등록된 조항이 없으면 전체 청크로 폴백한다.
+    const sameCategoryChunks = chunks.filter((chunk) => chunk.category === ml.category);
+    const searchPool =
+      isCategoryReliable && sameCategoryChunks.length > 0 ? sameCategoryChunks : chunks;
+
     const haystack = isCategoryReliable ? `${ml.dispute_type} ${ml.input.text}` : ml.input.text;
-    const scored = chunks.map((chunk) => {
+    const scored = searchPool.map((chunk) => {
       const similarity = cosineSimilarity(queryVector, chunk.embedding);
-      const categoryBoost =
-        isCategoryReliable && chunk.category === ml.category ? CATEGORY_MATCH_BOOST : 0;
       const keywordMatches = chunk.keywords.filter((kw) => haystack.includes(kw)).length;
       const keywordBoost = keywordMatches * KEYWORD_MATCH_BOOST;
-      return { chunk, score: similarity + categoryBoost + keywordBoost };
+      return { chunk, score: similarity + keywordBoost };
     });
 
     scored.sort((a, b) => b.score - a.score);
