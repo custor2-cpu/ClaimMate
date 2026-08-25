@@ -244,7 +244,15 @@ def predict(text: str, amount: float | None = None) -> dict:
     order = np.argsort(sims)[::-1][:3]
     ranked = candidate_idx[order]
     ranked_sims = sims[order]
-    dispute_type = bank_df.iloc[int(ranked[0])]["dispute_type"]
+    top_match = bank_df.iloc[int(ranked[0])]
+    dispute_type = top_match["dispute_type"]
+    # 신뢰도가 높을 때는 candidate_idx가 이미 category로 필터링돼 있어 항상 일치하므로
+    # 아래는 사실상 no-op이다. 신뢰도가 낮아 K-Means 군집 전체로 검색을 넓힌 경우에는
+    # 분류기가 예측한 category와 실제 최상위 유사사례의 category가 다를 수 있는데,
+    # 이때 category만 분류기의(신뢰도 낮은) 예측값을 그대로 쓰면 dispute_type/similar_cases와
+    # 모순되어 하류(RAG 법령 검색 등)에서 엉뚱한 카테고리로 검색되는 문제가 있었다.
+    # 최상위 유사사례의 category로 맞춰 내부 일관성을 보장한다.
+    category = top_match["category"]
 
     similar_cases: list[SimilarCase] = []
     for idx, sim in zip(ranked, ranked_sims):
