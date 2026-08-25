@@ -10,11 +10,18 @@ export const runtime = "nodejs";
 /**
  * 공공데이터 표본 부족(특히 체육시설/헬스장·화장품/미용·부동산/임대차·식품·여행/숙박처럼
  * 실 사례가 적은 카테고리)으로 ML의 success_rate(분류 신뢰도 + 유사사례 평균 가중치)가
- * 낮게 나오는 경우가 있다. 이 값 미만이면서 RAG로 관련 법령 조항이 검색된 경우, 그
- * 법령 근거에 명확한 환급 기준이 있는지 LLM이 직접 대조·판단한 legal_success_estimate로
- * success_rate를 대체(rerank)한다 — ML 통계보다 법적 근거를 우선한다.
+ * 부당하게 낮게 나오는 경우가 있다. RAG로 관련 법령 조항이 검색되면, 그 법령 근거에
+ * 명확한 환급 기준이 있는지 LLM이 항상 직접 대조·판단하고(legal_success_estimate),
+ * 그 값이 ML 값보다 이 마진 이상 높을 때만 success_rate를 대체(rerank)한다.
+ *
+ * 이전에는 "ML success_rate < 50%"라는 고정 임계값으로 재산정 여부를 결정했는데, 이
+ * 방식은 49.9%와 50.4%처럼 근거 차이가 거의 없는 두 사안의 결과가 임계값 하나를
+ * 사이에 두고 완전히 달라지는 경계값 불연속 문제가 있었다. 지금은 ML 값과 무관하게
+ * 항상 법령 기반 판단을 시도하고, "법령이 ML보다 뚜렷이 유리하게 나올 때만" 한
+ * 방향으로만(위로만) 보정하므로 이런 불연속이 없다 — 법령 판단이 ML보다 낮게 나와도
+ * 절대 하향 조정하지 않는다.
  */
-const LOW_SUCCESS_RATE_THRESHOLD = 50;
+const MIN_LEGAL_OVERRIDE_MARGIN = 10;
 
 const AGENT_JSON_SCHEMA = {
   name: "claim_mate_report",
@@ -98,7 +105,11 @@ function buildPrompt(ml: MLAnalysisResult, retrievedClauses: ReferencedClause[] 
   const referenceContext =
     retrievedClauses && retrievedClauses.length > 0
       ? `[REFERENCE LEGAL CONTEXT] (RAG 검색 결과 — 아래 조항만 인용하고, 여기 없는 법령명이나
-산정식을 임의로 만들어내지 마세요)
+산정식을 임의로 만들어내지 마세요. 번호는 검색 엔진이 이 사안과의 관련성 순으로 매긴
+것입니다 — 1번이 가장 관련성 높은 조항이니 특별한 사정이 없는 한 1번을 주된 근거로 삼고,
+legal_basis/referenced_clauses/legal_success_estimate 판단에서 1번을 우선하세요. 1번 조항
+본문에 "다른 기준을 따른다/확인이 필요하다"처럼 불확실성이 명시되어 있다면, 그 불확실성 때문에
+legal_success_estimate를 과도하게 높이지 말고 신중하게 판단하세요.)
 ${retrievedClauses
   .map(
     (c, i) =>
@@ -109,28 +120,28 @@ ${retrievedClauses
   .join("\n")}`
       : `[REFERENCE LEGAL CONTEXT] 없음 — referenced_clauses는 빈 배열로 두세요.`;
 
-  const isLowSuccessRate = ml.success_rate < LOW_SUCCESS_RATE_THRESHOLD;
-
   const system = `당신은 한국소비자원 소비자상담 데이터를 기반으로 학습된 소비자분쟁 해결 전문 AI 에이전트 "ClaimMate"입니다.
 Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하여, 공정거래위원회 고시 「소비자분쟁해결기준」에 근거한
 실행 가능한 인사이트 리포트를 JSON으로 작성합니다.
 
 규칙:
 - success_rate는 ML 모델이 산출한 값(${ml.success_rate})을 그대로 사용하세요.
-- legal_success_estimate/legal_success_reasoning: ML의 success_rate(${ml.success_rate}%)가
-  ${LOW_SUCCESS_RATE_THRESHOLD}% 미만${isLowSuccessRate ? "이라 이번 사안이 여기 해당합니다" : "이 아니라 이번 사안은 해당하지 않습니다"}일 때,
-  공공데이터 표본 부족으로 ML 수치가 실제 법적 타당성보다 낮게 나왔을 가능성이 있습니다.
+- legal_success_estimate/legal_success_reasoning: 공공데이터 표본 부족으로 ML의
+  success_rate(${ml.success_rate}%)가 실제 법적 타당성보다 낮게 나왔을 수 있습니다. ML 값의
+  높고 낮음과 무관하게 항상 아래 판단을 하세요.
   [REFERENCE LEGAL CONTEXT] 조항의 적용 조건이 사용자 "본인의 상황"에 대한 진술(무엇을
   했는지/안 했는지, 언제·왜 취소했는지 등)로 충족되면, legal_success_estimate를 그 법적
-  판단에 따라 재산정해 ML 수치를 대체(rerank)하세요. 이 값은 "위약금 비율"이 아니라 "소비자
-  주장이 받아들여질 확률"이므로, 법이 소비자에게 명확히 유리하면 80~95 같은 높은 값을 넣으세요
-  (예: "가입 후 이틀, 한 번도 이용 안 함" + 조항 "이용 개시 이전엔 위약금 10% 이내만 공제" →
-  사업자가 요구한 50%는 부당하므로 85~95).
+  판단에 따라 독립적으로 산정하세요. 이 값은 "위약금 비율"이 아니라 "소비자 주장이 받아들여질
+  확률"이므로, 법이 소비자에게 명확히 유리하면 80~95 같은 높은 값을 넣으세요 (예: "가입 후
+  이틀, 한 번도 이용 안 함" + 조항 "이용 개시 이전엔 위약금 10% 이내만 공제" → 사업자가 요구한
+  50%는 부당하므로 85~95).
   반대로, 조건 충족이 오직 사용자 "본인이 법령/정책을 이렇게 알고 있다"는 추정(예: "n일 전
   취소하면 무료라고 알고 있다")에만 의존하고 [REFERENCE LEGAL CONTEXT] 본문에 그 구체적 수치가
   없다면, 그 추정은 검증되지 않은 것이므로 legal_success_estimate에는 success_rate와 동일한
   값을 넣고 legal_success_reasoning에 "법령 조항만으로 독립 추정하기에 근거 부족"이라고 쓰세요.
-  [REFERENCE LEGAL CONTEXT]가 없거나 success_rate가 이미 충분히 높을 때도 마찬가지입니다.
+  [REFERENCE LEGAL CONTEXT]가 없을 때도 마찬가지입니다. legal_success_estimate가
+  success_rate보다 낮아야 한다고 판단되더라도, 이 시스템은 상향 보정에만 쓰이므로 낮추지 말고
+  success_rate와 동일한 값을 넣으세요.
 - legal_basis와 estimated_refund는 아래 제공된 참고 법적 근거를 기반으로 사안에 맞게 구체화하세요.
 - referenced_clauses는 반드시 [REFERENCE LEGAL CONTEXT]에 제공된 조항만 그대로(법령명/산정식 왜곡 없이)
   인용하세요. 제공된 근거가 없다고 명시된 경우 referenced_clauses는 빈 배열([])로 두세요. 이 필드에서
@@ -202,22 +213,23 @@ async function generateWithOpenAI(
 }
 
 /**
- * success_rate를 최종 확정한다. ML의 success_rate가 낮고(<${LOW_SUCCESS_RATE_THRESHOLD}%)
- * RAG로 법령 조항이 검색되었으며, LLM이 그 조항을 사용자 사실관계와 대조해 실제로 다른
- * (의미 있게 차이 나는) 값을 산정한 경우에만 법령 기반 값으로 대체(rerank)한다. 그 외에는
- * 항상 ML 산출값을 그대로 쓴다(재현 가능성/신뢰도 보존, 애매할 때 과장 방지).
+ * success_rate를 최종 확정한다. RAG로 법령 조항이 검색되었고, LLM이 그 조항을 사용자
+ * 사실관계와 대조해 산정한 legal_success_estimate가 ML 값보다 MIN_LEGAL_OVERRIDE_MARGIN
+ * 이상 높을 때만 그 값으로 대체(rerank)한다. ML success_rate 자체의 높낮이로 판단 여부를
+ * 가르지 않으므로(고정 임계값 없음) 경계값 근처에서 결과가 불연속으로 뒤집히지 않고, 법령
+ * 판단이 ML보다 낮게 나와도 하향 조정은 하지 않는다(상향 보정 전용, 애매할 때 과장 방지).
  */
 function resolveSuccessRate(
   ml: MLAnalysisResult,
   retrievedClauses: ReferencedClause[] | null,
   raw: RawAgentResponse
 ): { rate: number; basis: AgentReport["success_rate_basis"]; reasoning: string } {
-  const isLowSuccessRate = ml.success_rate < LOW_SUCCESS_RATE_THRESHOLD;
   const hasLegalGrounding = Boolean(retrievedClauses && retrievedClauses.length > 0);
   const hasLegalEstimate = typeof raw.legal_success_estimate === "number";
-  const estimateDiffers = hasLegalEstimate && Math.abs(raw.legal_success_estimate - ml.success_rate) >= 0.1;
+  const isMeaningfullyHigher =
+    hasLegalEstimate && raw.legal_success_estimate - ml.success_rate >= MIN_LEGAL_OVERRIDE_MARGIN;
 
-  if (isLowSuccessRate && hasLegalGrounding && estimateDiffers) {
+  if (hasLegalGrounding && isMeaningfullyHigher) {
     return {
       rate: raw.legal_success_estimate,
       basis: "legal_reasoning",
