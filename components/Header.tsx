@@ -2,6 +2,21 @@
 
 import { Scale, ShieldCheck } from "lucide-react";
 
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
+const GIT_SHA = process.env.NEXT_PUBLIC_GIT_SHA ?? "dev";
+const BUILD_TIME = process.env.NEXT_PUBLIC_BUILD_TIME ?? "";
+
+function formatBuildTime(iso: string) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/80 backdrop-blur-md">
@@ -20,9 +35,17 @@ export default function Header() {
           </div>
         </div>
 
-        <div className="hidden items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-300 sm:flex">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          한국소비자원 공공데이터 기반
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-300 sm:flex">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            한국소비자원 공공데이터 기반
+          </div>
+          <span
+            className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 font-mono text-[11px] text-slate-400"
+            title={BUILD_TIME ? `빌드: ${formatBuildTime(BUILD_TIME)}` : undefined}
+          >
+            v{APP_VERSION} · {GIT_SHA}
+          </span>
         </div>
       </div>
     </header>

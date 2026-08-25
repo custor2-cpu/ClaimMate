@@ -40,3 +40,6 @@ __pycache__/
 .venv/
 venv/
 *.joblib
+
+.vercel
+.env*
