@@ -14,7 +14,7 @@ import {
   Sparkles,
   Tag,
 } from "lucide-react";
-import type { AnalysisReport } from "@/lib/types";
+import type { AnalysisReport, CertaintyLevel } from "@/lib/types";
 import ActionChecklist from "@/components/ActionChecklist";
 import NoticeLetterModal from "@/components/NoticeLetterModal";
 
@@ -28,20 +28,64 @@ function gaugeColor(rate: number) {
   return { stroke: "#f87171", text: "text-rose-400", label: "구제 가능성 낮음" };
 }
 
+/**
+ * 법령 근거로 재산정된(success_rate_basis === "legal_reasoning") 경우, "85.0%" 같은
+ * 정밀해 보이는 단일 숫자 대신 등급을 1차 정보로 보여준다 — 등급이 근거이고 %는
+ * 그 등급에 종속된 참고 범위라는 걸 시각적으로도 드러내기 위함.
+ */
+const CERTAINTY_STYLES: Record<
+  CertaintyLevel,
+  { stroke: string; text: string; label: string; range: string; badgeClass: string }
+> = {
+  "매우 높음": {
+    stroke: "#34d399",
+    text: "text-emerald-400",
+    label: "구제 가능성 매우 높음",
+    range: "95~99%",
+    badgeClass: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+  },
+  높음: {
+    stroke: "#34d399",
+    text: "text-emerald-400",
+    label: "구제 가능성 높음",
+    range: "75~90%",
+    badgeClass: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+  },
+  "조정 필요": {
+    stroke: "#fbbf24",
+    text: "text-amber-400",
+    label: "협의·조정 필요",
+    range: "40~65%",
+    badgeClass: "border-amber-400/30 bg-amber-500/10 text-amber-300",
+  },
+  "구제 어려움": {
+    stroke: "#f87171",
+    text: "text-rose-400",
+    label: "구제 가능성 낮음",
+    range: "10~30%",
+    badgeClass: "border-rose-400/30 bg-rose-500/10 text-rose-300",
+  },
+};
+
 function SuccessGauge({
   rate,
   basis,
+  certaintyLevel,
   reasoning,
 }: {
   rate: number;
   basis?: AnalysisReport["success_rate_basis"];
+  certaintyLevel?: CertaintyLevel | null;
   reasoning?: string;
 }) {
   const radius = 76;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.min(100, Math.max(0, rate));
   const offset = circumference * (1 - clamped / 100);
-  const { stroke, text, label } = gaugeColor(clamped);
+
+  const isLegalGrade = basis === "legal_reasoning" && Boolean(certaintyLevel);
+  const grade = certaintyLevel ? CERTAINTY_STYLES[certaintyLevel] : null;
+  const { stroke, text, label } = grade ?? gaugeColor(clamped);
 
   return (
     <div className="flex flex-col items-center justify-center">
@@ -69,15 +113,26 @@ function SuccessGauge({
             transition={{ duration: 1, ease: "easeOut" }}
           />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-4xl font-bold text-white">{clamped.toFixed(1)}%</span>
-          <span className="mt-1 text-[11px] font-medium text-slate-400">구제 성공 확률</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
+          {isLegalGrade && grade ? (
+            <>
+              <span className="text-2xl font-bold leading-tight text-white">{certaintyLevel}</span>
+              <span className="mt-1 text-[11px] font-medium text-slate-400">
+                참고 범위 {grade.range}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-4xl font-bold text-white">{clamped.toFixed(1)}%</span>
+              <span className="mt-1 text-[11px] font-medium text-slate-400">구제 성공 확률</span>
+            </>
+          )}
         </div>
       </div>
       <p className={`mt-3 text-sm font-semibold ${text}`}>{label}</p>
-      {basis === "legal_reasoning" && (
+      {isLegalGrade && grade && (
         <span
-          className="mt-2 flex items-center gap-1.5 rounded-full border border-brand-400/30 bg-brand-500/10 px-3 py-1 text-[11px] font-medium text-brand-200"
+          className={`mt-2 flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium ${grade.badgeClass}`}
           title={reasoning || undefined}
         >
           <Scale className="h-3 w-3" />
@@ -111,6 +166,7 @@ export default function ResultReport({ report }: ResultReportProps) {
           <SuccessGauge
             rate={report.success_rate}
             basis={report.success_rate_basis}
+            certaintyLevel={report.certainty_level}
             reasoning={report.legal_success_reasoning}
           />
           <div className="mt-5 flex flex-wrap justify-center gap-2">

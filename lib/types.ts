@@ -45,10 +45,18 @@ export interface ReferencedClause {
 /**
  * success_rate가 어떻게 산출되었는지 표시.
  * - ml_similarity: 기본값. ML 분류 신뢰도 + 유사사례 평균(predictor.py)에서 산출
- * - legal_reasoning: ML 신뢰도가 낮고(<35%) RAG 법령 조항이 검색되었을 때, 그 조항과
- *   사용자가 명시한 사실관계만 근거로 LLM이 독립적으로 추정한 값으로 대체됨
+ * - legal_reasoning: RAG 법령 조항이 검색되고, 그 조항과 사용자가 명시한 사실관계만
+ *   근거로 LLM이 독립 판단한 값이 ML 값보다 뚜렷이 높을 때 대체됨(상향 전용)
  */
 export type SuccessRateBasis = "ml_similarity" | "legal_reasoning";
+
+/**
+ * 법령 근거의 명확성 등급. 단일 %(예: 85%)가 "정밀한 확률"처럼 보여 오해를 사고
+ * LLM이 임의의 숫자에 앵커링되는 문제가 있어, 등급을 1차 신호로 쓰고 %는 등급에 종속된
+ * 범위 안에서만 참고용으로 산정한다. success_rate_basis가 "legal_reasoning"일 때만 채워지고,
+ * "ml_similarity"일 때는 null이다.
+ */
+export type CertaintyLevel = "매우 높음" | "높음" | "조정 필요" | "구제 어려움";
 
 /** /api/agent (OpenAI LLM Agent) 최종 구조화 응답 — 명세서 4.1 JSON 스키마 */
 export interface AgentReport {
@@ -56,6 +64,8 @@ export interface AgentReport {
   dispute_type: string;
   success_rate: number;
   success_rate_basis: SuccessRateBasis;
+  certainty_level: CertaintyLevel | null;
+  is_legally_clear: boolean;
   legal_success_reasoning: string;
   legal_basis: string;
   referenced_clauses: ReferencedClause[];
