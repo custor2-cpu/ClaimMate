@@ -117,7 +117,14 @@ const AGENT_JSON_SCHEMA = {
           required: ["law_name", "clause_content", "formula"],
         },
       },
-      estimated_refund: { type: "string", description: "예상 환급 범위" },
+      estimated_refund: {
+        type: "string",
+        description:
+          "예상 환급 범위. 사용자가 이미 사용한 횟수/기간이 있는 계속거래 계약(예: '10회 중 3회 " +
+          "사용')이면 결제 총액이 아니라 '결제 총액 - 이미 사용한 만큼의 금액'(미사용분)에서 " +
+          "위약금을 공제해 계산할 것 — 결제 총액에서 위약금만 빼면 이미 사용한 부분까지 " +
+          "환급하는 셈이 되어 틀린다.",
+      },
       action_plan: {
         type: "array",
         items: { type: "string" },
@@ -234,6 +241,13 @@ Pandas/Scikit-learn 파이프라인이 산출한 ML 분석 결과를 종합하�
   그 맥락을 reasoning에 끌어오지 말고 사용자가 실제로 입력한 [사용자 입력]의 상담 내용만
   근거로 삼으세요.
 - legal_basis와 estimated_refund는 아래 제공된 참고 법적 근거를 기반으로 사안에 맞게 구체화하세요.
+- ⚠️ estimated_refund 계산 시 이미 사용한 만큼을 반드시 먼저 차감하세요: 회원권/이용권처럼
+  정해진 횟수나 기간 중 일부를 이미 사용한 계속거래 계약(헬스장·피부관리실·학원 등)은
+  "결제 총액 - 위약금"이 아니라 "결제 총액에서 이미 사용한 횟수/기간에 해당하는 금액을
+  먼저 뺀 미사용분 - 위약금"이 환급액입니다. 예: 10회권 800,000원 중 3회 사용 → 미사용분은
+  800,000 × (10-3)/10 = 560,000원이고, 여기서 위약금(통상 10% 이내)을 공제한 금액이
+  환급액입니다(800,000원 전체에서 위약금만 빼면 안 됩니다). 사용자 입력에 사용 횟수/기간이
+  없으면 결제 총액 기준으로 계산하되 그 전제를 estimated_refund에 명시하세요.
 - referenced_clauses는 반드시 [REFERENCE LEGAL CONTEXT]에 제공된 조항만 그대로(법령명/산정식 왜곡 없이)
   인용하세요. 제공된 근거가 없다고 명시된 경우 referenced_clauses는 빈 배열([])로 두세요. 이 필드에서
   법령을 상상해서 만들어내는 것(hallucination)은 절대 금지입니다.
