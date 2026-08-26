@@ -6,15 +6,15 @@ import Header from "@/components/Header";
 import DisputeForm from "@/components/DisputeForm";
 import ResultReport from "@/components/ResultReport";
 import StatCharts from "@/components/StatCharts";
-import type { AnalysisReport, DisputeFormInput, MLAnalysisResult } from "@/lib/types";
+import type { AnalysisReport, AnalysisStage, DisputeFormInput, MLAnalysisResult } from "@/lib/types";
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
+  const [stage, setStage] = useState<AnalysisStage>("idle");
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(null);
 
   const handleSubmit = async (input: DisputeFormInput) => {
-    setLoading(true);
+    setStage("analyzing");
     setError(null);
     setReport(null);
 
@@ -29,6 +29,10 @@ export default function Home() {
         throw new Error(mlResult.error ?? "ML 분석에 실패했습니다.");
       }
 
+      // ML 분석(보통 수 초 이내)과 달리 LLM 리포트 생성은 OpenAI 응답 속도에 따라
+      // 걸리는 시간이 크게 달라진다 — 단계를 나눠 표시해야 사용자가 지금 어느 단계에
+      // 있는지, 왜 오래 걸릴 수 있는지 알 수 있다.
+      setStage("generating");
       const agentRes = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -43,7 +47,7 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.");
     } finally {
-      setLoading(false);
+      setStage("idle");
     }
   };
 
@@ -67,7 +71,7 @@ export default function Home() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 sm:px-6">
-        <DisputeForm onSubmit={handleSubmit} loading={loading} />
+        <DisputeForm onSubmit={handleSubmit} stage={stage} />
       </section>
 
       {error && (

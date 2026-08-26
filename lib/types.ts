@@ -5,6 +5,12 @@ export interface DisputeFormInput {
   category: string | null;
 }
 
+// ML 분석(/api/analyze)과 LLM 리포트 생성(/api/agent) 두 단계를 구분해 표시하기 위한 상태.
+// 두 번째 단계는 OpenAI 응답 속도에 따라 소요시간 편차가 커서, 고정된 예상 시간을
+// 카운트다운으로 보여주면 실제로는 끝나지 않았는데 "1초 남음"에 멈춘 채 계속 표시되는
+// 문제가 있었다 — 단계 구분 + 경과 시간 표시로 대체했다.
+export type AnalysisStage = "idle" | "analyzing" | "generating";
+
 export interface SimilarCase {
   category: string;
   dispute_type: string;
@@ -124,6 +130,33 @@ export const QUICK_PRESETS: { label: string; input: DisputeFormInput }[] = [
       amount: 89000,
       date: null,
       category: "의류/패션잡화",
+    },
+  },
+  {
+    label: "피부관리실 환불 거부",
+    input: {
+      text: "피부관리실에서 10회 관리권을 결제했는데 3회 사용한 후 개인 사정으로 환불을 요청했더니 이미 사용했다는 이유로 환불이 전혀 안된다고 합니다.",
+      amount: 800000,
+      date: null,
+      category: "화장품/미용",
+    },
+  },
+  {
+    label: "전세보증금 반환 지연",
+    input: {
+      text: "전세 계약 만료일이 다가와 이사를 준비 중인데, 집주인이 새 세입자를 구하지 못했다며 보증금 반환을 계속 미루고 있습니다.",
+      amount: 50000000,
+      date: null,
+      category: "부동산/임대차",
+    },
+  },
+  {
+    label: "배달음식 이물질",
+    input: {
+      text: "배달 음식을 주문했는데 음식에서 머리카락이 나와서 환불을 요청했는데 업체에서 증거가 없다며 환불을 거부합니다.",
+      amount: 25000,
+      date: null,
+      category: "식품",
     },
   },
 ];
