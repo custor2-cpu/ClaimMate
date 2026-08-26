@@ -14,9 +14,10 @@ import {
   Sparkles,
   Tag,
 } from "lucide-react";
-import type { AnalysisReport, CertaintyLevel } from "@/lib/types";
+import type { AnalysisReport, CertaintyLevel, SimilarCase } from "@/lib/types";
 import ActionChecklist from "@/components/ActionChecklist";
 import NoticeLetterModal from "@/components/NoticeLetterModal";
+import SimilarCaseModal from "@/components/SimilarCaseModal";
 
 interface ResultReportProps {
   report: AnalysisReport;
@@ -133,6 +134,7 @@ function SuccessGauge({
 
 export default function ResultReport({ report }: ResultReportProps) {
   const [modalOpen, setModalOpen] = useState(false);
+  const [selectedCase, setSelectedCase] = useState<SimilarCase | null>(null);
 
   return (
     <motion.div
@@ -225,9 +227,11 @@ export default function ResultReport({ report }: ResultReportProps) {
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {report.similar_cases.map((c, idx) => (
-            <div
+            <button
               key={idx}
-              className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-xs"
+              type="button"
+              onClick={() => setSelectedCase(c)}
+              className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left text-xs transition hover:border-brand-400/30 hover:bg-white/[0.04]"
             >
               <div className="mb-2 flex items-center justify-between">
                 <span className="font-semibold text-slate-200">{c.category}</span>
@@ -236,8 +240,8 @@ export default function ResultReport({ report }: ResultReportProps) {
                 </span>
               </div>
               <p className="mb-1.5 text-slate-400">{c.dispute_type}</p>
-              <p className="text-slate-500">처리결과: {c.outcome}</p>
-            </div>
+              <p className="line-clamp-3 text-slate-500">처리결과: {c.outcome}</p>
+            </button>
           ))}
         </div>
       </div>
@@ -257,6 +261,8 @@ export default function ResultReport({ report }: ResultReportProps) {
         onClose={() => setModalOpen(false)}
         template={report.notice_letter_template}
       />
+
+      <SimilarCaseModal caseData={selectedCase} onClose={() => setSelectedCase(null)} />
     </motion.div>
   );
 }
