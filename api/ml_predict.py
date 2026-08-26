@@ -29,12 +29,13 @@ from ml_engine import predictor  # noqa: E402
 def run_analysis(payload: dict) -> dict:
     text = (payload.get("text") or "").strip()
     amount = payload.get("amount")
+    category_hint = payload.get("category")
 
     if not text:
         return {"error": "상담 내용을 입력해 주세요."}
 
     try:
-        result = predictor.predict(text, amount)
+        result = predictor.predict(text, amount, category_hint=category_hint)
     except ValueError as exc:
         return {"error": str(exc)}
 
@@ -42,7 +43,7 @@ def run_analysis(payload: dict) -> dict:
         "text": text,
         "amount": amount,
         "date": payload.get("date"),
-        "category_hint": payload.get("category"),
+        "category_hint": category_hint,
     }
     return result
 

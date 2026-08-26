@@ -214,7 +214,7 @@ def _ensure_trained():
         _train()
 
 
-def predict(text: str, amount: float | None = None) -> dict:
+def predict(text: str, amount: float | None = None, category_hint: str | None = None) -> dict:
     _ensure_trained()
     bank_df = _bank_df
 
@@ -231,7 +231,15 @@ def predict(text: str, amount: float | None = None) -> dict:
     confidence = float(proba[top_idx])
     category = classes[top_idx]
 
-    if confidence >= _LOW_CONFIDENCE_THRESHOLD:
+    valid_categories = set(bank_df["category"].unique())
+    if category_hint and category_hint in valid_categories:
+        # 사용자가 품목 카테고리를 수동으로 선택한 경우, 분류기 예측(특히 신뢰도가
+        # 낮은 애매한 입력에서)보다 명시적이고 신뢰도 높은 신호이므로 그대로 채택한다.
+        category = category_hint
+        if category_hint in classes:
+            confidence = float(proba[list(classes).index(category_hint)])
+        candidate_idx = np.where(bank_df["category"].to_numpy() == category)[0]
+    elif confidence >= _LOW_CONFIDENCE_THRESHOLD:
         candidate_idx = np.where(bank_df["category"].to_numpy() == category)[0]
     else:
         input_cluster = int(_kmeans.predict(vec)[0])
@@ -243,16 +251,27 @@ def predict(text: str, amount: float | None = None) -> dict:
     sims = cosine_similarity(vec, _tfidf_matrix[candidate_idx])[0]
     order = np.argsort(sims)[::-1][:3]
     ranked = candidate_idx[order]
-    ranked_sims = sims[order]
     top_match = bank_df.iloc[int(ranked[0])]
     dispute_type = top_match["dispute_type"]
-    # 신뢰도가 높을 때는 candidate_idx가 이미 category로 필터링돼 있어 항상 일치하므로
-    # 아래는 사실상 no-op이다. 신뢰도가 낮아 K-Means 군집 전체로 검색을 넓힌 경우에는
-    # 분류기가 예측한 category와 실제 최상위 유사사례의 category가 다를 수 있는데,
-    # 이때 category만 분류기의(신뢰도 낮은) 예측값을 그대로 쓰면 dispute_type/similar_cases와
-    # 모순되어 하류(RAG 법령 검색 등)에서 엉뚱한 카테고리로 검색되는 문제가 있었다.
-    # 최상위 유사사례의 category로 맞춰 내부 일관성을 보장한다.
+    # 신뢰도가 높거나 category_hint가 있을 때는 candidate_idx가 이미 category로
+    # 필터링돼 있어 항상 일치하므로 아래는 사실상 no-op이다. 신뢰도가 낮아 K-Means
+    # 군집 전체로 검색을 넓힌 경우에는 분류기가 예측한 category와 실제 최상위
+    # 유사사례의 category가 다를 수 있는데, 이때 category만 분류기의(신뢰도 낮은)
+    # 예측값을 그대로 쓰면 dispute_type/similar_cases와 모순되어 하류(RAG 법령 검색
+    # 등)에서 엉뚱한 카테고리로 검색되는 문제가 있었다. 최상위 유사사례의 category로
+    # 맞춰 내부 일관성을 보장한다.
     category = top_match["category"]
+
+    # 위에서 category가 최종 확정됐으므로, 유사사례 목록/성공률 산출은 반드시 이
+    # category로 다시 필터링한 후보에서만 수행한다. 그렇지 않으면(예: 신뢰도가 낮아
+    # 군집 전체로 검색을 넓혔던 경우) Top-3 유사사례에 서로 다른 분야(예: 헬스장
+    # 사례와 전자제품 사례)가 섞여 들어가고, 그 평균 base_success_rate와 법적 근거가
+    # 실제 분쟁 분야와 무관한 사례에 의해 왜곡되어 환불액 산정 오류로 이어진다.
+    same_category_idx = np.where(bank_df["category"].to_numpy() == category)[0]
+    same_category_sims = cosine_similarity(vec, _tfidf_matrix[same_category_idx])[0]
+    same_category_order = np.argsort(same_category_sims)[::-1][:3]
+    ranked = same_category_idx[same_category_order]
+    ranked_sims = same_category_sims[same_category_order]
 
     similar_cases: list[SimilarCase] = []
     for idx, sim in zip(ranked, ranked_sims):
