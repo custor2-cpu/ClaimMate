@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Search, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { QUICK_PRESETS, type DisputeFormInput } from "@/lib/types";
@@ -28,11 +28,29 @@ interface DisputeFormProps {
   loading: boolean;
 }
 
+// ML 분석(/api/analyze) + LLM 리포트 생성(/api/agent) 두 단계를 합친 예상 소요시간(초).
+// 실제로는 OpenAI 응답 속도에 따라 더 걸릴 수 있어 정확한 타이머가 아니라 대략적인
+// 안내용 카운트다운이며, 이 값에 도달해도 응답이 안 오면 1초에서 멈춘 채 계속 표시한다.
+const ESTIMATED_ANALYSIS_SECONDS = 12;
+
 export default function DisputeForm({ onSubmit, loading }: DisputeFormProps) {
   const [text, setText] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState("");
   const [category, setCategory] = useState(CATEGORY_OPTIONS[0]);
+  const [remainingSeconds, setRemainingSeconds] = useState(ESTIMATED_ANALYSIS_SECONDS);
+
+  useEffect(() => {
+    if (!loading) {
+      setRemainingSeconds(ESTIMATED_ANALYSIS_SECONDS);
+      return;
+    }
+    setRemainingSeconds(ESTIMATED_ANALYSIS_SECONDS);
+    const interval = setInterval(() => {
+      setRemainingSeconds((prev) => Math.max(1, prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [loading]);
 
   const applyPreset = (preset: DisputeFormInput) => {
     setText(preset.text);
@@ -139,7 +157,7 @@ export default function DisputeForm({ onSubmit, loading }: DisputeFormProps) {
           {loading ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              AI가 분석 중입니다...
+              AI가 분석 중입니다... (약 {remainingSeconds}초 남음)
             </>
           ) : (
             <>
