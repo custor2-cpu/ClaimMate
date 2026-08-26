@@ -3,7 +3,9 @@ Scikit-learn 기반 분쟁 유형 분류 및 구제 성공 확률 추론 엔진.
 
 - TF-IDF(char n-gram) 벡터화 + Logistic Regression: 비정형 텍스트 -> 분쟁 유형 분류
 - K-Means: 과거 상담 사례를 군집화하여 유사 사례 후보군 축소
-- Cosine Similarity: 군집 내에서 최종 Top-3 유사 사례 매칭
+- BM25(문서 길이 정규화 랭킹 함수): 군집 내에서 최종 Top-3 유사 사례 매칭. 순수 코사인
+  유사도는 문서 길이에 비례해 벡터가 희석되는 문제가 있어(길고 상세한 실제 상담 사례가
+  짧은 예시보다 부당하게 낮은 점수를 받음) BM25로 교체했다.
 - 구제 성공 확률: 분류기 신뢰도(confidence)와 유사 사례의 실측 처리결과(base_success_rate)를
   가중 결합하여 산출한다.
 
@@ -22,8 +24,7 @@ import numpy as np
 from scipy.sparse import csr_matrix, hstack
 from sklearn.cluster import KMeans
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
 from ml_engine import cleaner
 
@@ -125,14 +126,38 @@ _tfidf_matrix = None
 _cluster_labels = None
 _bank_df = None
 
+# 유사 사례 검색(BM25) 전용 상태. 분류기(_classifier)는 여전히 _tfidf_matrix만 사용하며
+# 이 값들의 영향을 받지 않는다 — 유사도 계산 방식을 바꿔도 카테고리 분류 성능에는
+# 영향이 없도록 분리했다.
+_count_vectorizer: CountVectorizer | None = None
+_count_matrix = None
+_idf: np.ndarray | None = None
+_doc_lengths: np.ndarray | None = None
+_avg_doc_length: float = 0.0
+
 # 이 스크립트는 API 요청마다 새 프로세스로 실행되므로(subprocess), 매번 처음부터
 # 학습하면 요청당 수 초가 소요된다. 학습된 모델을 디스크에 캐시해 재사용하고,
 # 케이스뱅크 데이터가 바뀐 경우에만(캐시 키 불일치) 재학습한다.
 _MODEL_CACHE_PATH = Path(__file__).resolve().parent / "_model_cache.joblib"
 
+# 캐시 산출물의 스키마(어떤 객체들을 저장하는지)가 바뀌면 케이스뱅크가 그대로여도
+# 무조건 재학습해야 한다 — 데이터 mtime/건수만 캐시 키로 쓰면 코드만 바뀐 경우
+# 예전 스키마의 캐시를 그대로 불러오다 KeyError가 나거나 조용히 옛 로직으로 동작한다.
+_CACHE_SCHEMA_VERSION = 2
+
 # 분류기 신뢰도가 이 값 미만이면(애매한 입력) 카테고리 단일 필터 대신
 # K-Means 군집 전체를 유사 사례 후보로 넓혀 검색한다.
 _LOW_CONFIDENCE_THRESHOLD = 0.35
+
+# BM25 랭킹 함수 파라미터(관용적 기본값). char n-gram TF-IDF 코사인 유사도는 문서
+# 길이에 비례해 벡터가 희석되는 문제가 있었다 — 예: 실제 공공데이터 상담문("...직장
+# 이전으로 이사를 하게 되어... 오피스텔이라 주소이전이 불가한데...")은 사안이 사용자
+# 입력과 동일해도 부가 정보가 많아 코사인 유사도가 낮게 나오고, 짧고 구어체인
+# SYNTHETIC_CASES 예시가 사안이 달라도 더 높은 유사도를 받는 역전 현상이 실측으로
+# 확인됐다. BM25는 문서 길이를 평균 길이 대비 명시적으로 정규화(b)하고 항목 빈도를
+# 포화(k1)시켜 이 왜곡을 줄인다.
+_BM25_K1 = 1.5
+_BM25_B = 0.75
 
 
 def _get_bank_df():
@@ -141,11 +166,12 @@ def _get_bank_df():
 
 def _cache_key() -> str:
     real_mtime = _REAL_CASE_BANK_PATH.stat().st_mtime if _REAL_CASE_BANK_PATH.exists() else 0
-    return f"{real_mtime}:{len(CASE_BANK)}"
+    return f"{_CACHE_SCHEMA_VERSION}:{real_mtime}:{len(CASE_BANK)}"
 
 
 def _load_from_cache(cache_key: str) -> bool:
     global _vectorizer, _classifier, _kmeans, _tfidf_matrix, _cluster_labels, _bank_df
+    global _count_vectorizer, _count_matrix, _idf, _doc_lengths, _avg_doc_length
 
     if not _MODEL_CACHE_PATH.exists():
         return False
@@ -162,11 +188,17 @@ def _load_from_cache(cache_key: str) -> bool:
     _tfidf_matrix = cached["tfidf_matrix"]
     _cluster_labels = cached["cluster_labels"]
     _bank_df = cached["bank_df"]
+    _count_vectorizer = cached["count_vectorizer"]
+    _count_matrix = cached["count_matrix"]
+    _idf = cached["idf"]
+    _doc_lengths = cached["doc_lengths"]
+    _avg_doc_length = cached["avg_doc_length"]
     return True
 
 
 def _train():
     global _vectorizer, _classifier, _kmeans, _tfidf_matrix, _cluster_labels, _bank_df
+    global _count_vectorizer, _count_matrix, _idf, _doc_lengths, _avg_doc_length
 
     cache_key = _cache_key()
     if _load_from_cache(cache_key):
@@ -192,6 +224,17 @@ def _train():
     _kmeans = KMeans(n_clusters=max(n_clusters, 2), n_init=10, random_state=42)
     _cluster_labels = _kmeans.fit_predict(_tfidf_matrix)
 
+    # 유사 사례 검색(BM25)용: _vectorizer와 동일한 vocabulary/n-gram 설정을 공유하는
+    # 원시 빈도 행렬. TF-IDF 값은 이미 L2 정규화가 적용돼 있어 원시 빈도를 복원할 수
+    # 없으므로 별도로 만든다.
+    _count_vectorizer = CountVectorizer(
+        vocabulary=_vectorizer.vocabulary_, analyzer="char_wb", ngram_range=(2, 4)
+    )
+    _count_matrix = _count_vectorizer.fit_transform(clean_texts)
+    _idf = _vectorizer.idf_
+    _doc_lengths = np.asarray(_count_matrix.sum(axis=1)).flatten()
+    _avg_doc_length = float(_doc_lengths.mean()) if len(_doc_lengths) else 1.0
+
     try:
         joblib.dump(
             {
@@ -202,6 +245,11 @@ def _train():
                 "tfidf_matrix": _tfidf_matrix,
                 "cluster_labels": _cluster_labels,
                 "bank_df": _bank_df,
+                "count_vectorizer": _count_vectorizer,
+                "count_matrix": _count_matrix,
+                "idf": _idf,
+                "doc_lengths": _doc_lengths,
+                "avg_doc_length": _avg_doc_length,
             },
             _MODEL_CACHE_PATH,
         )
@@ -212,6 +260,30 @@ def _train():
 def _ensure_trained():
     if _classifier is None:
         _train()
+
+
+def _bm25_similarity(query_counts, doc_counts, doc_lengths: np.ndarray) -> np.ndarray:
+    """후보 문서들에 대한 쿼리의 BM25 유사도를 0~100 스케일로 반환한다.
+
+    쿼리 자신을 "평균 길이 문서"로 가정했을 때 얻을 점수를 100으로 놓고 정규화한다
+    (완벽히 일치하는 문서가 대략 100에 가깝게, 길이 차이로 인한 왜곡 없이 나오도록).
+    """
+    query_terms = query_counts.indices
+    if len(query_terms) == 0 or doc_counts.shape[0] == 0:
+        return np.zeros(doc_counts.shape[0])
+
+    term_idf = _idf[query_terms]
+    term_freqs = np.asarray(doc_counts[:, query_terms].todense(), dtype=float)
+    length_norm = _BM25_K1 * (1 - _BM25_B + _BM25_B * (doc_lengths / _avg_doc_length))
+    scores = (
+        term_idf[None, :] * term_freqs * (_BM25_K1 + 1) / (term_freqs + length_norm[:, None])
+    ).sum(axis=1)
+
+    query_term_freqs = np.asarray(query_counts[:, query_terms].todense(), dtype=float)[0]
+    ref_score = (term_idf * query_term_freqs * (_BM25_K1 + 1) / (query_term_freqs + _BM25_K1)).sum()
+    if ref_score <= 0:
+        return np.zeros(doc_counts.shape[0])
+    return np.clip(scores / ref_score * 100, 0, 100)
 
 
 def predict(text: str, amount: float | None = None) -> dict:
@@ -240,7 +312,8 @@ def predict(text: str, amount: float | None = None) -> dict:
     if len(candidate_idx) < 3:
         candidate_idx = np.arange(_tfidf_matrix.shape[0])
 
-    sims = cosine_similarity(vec, _tfidf_matrix[candidate_idx])[0]
+    query_counts = _count_vectorizer.transform([clean])
+    sims = _bm25_similarity(query_counts, _count_matrix[candidate_idx], _doc_lengths[candidate_idx])
     order = np.argsort(sims)[::-1][:3]
     ranked = candidate_idx[order]
     ranked_sims = sims[order]
@@ -261,7 +334,7 @@ def predict(text: str, amount: float | None = None) -> dict:
             SimilarCase(
                 category=row["category"],
                 dispute_type=row["dispute_type"],
-                similarity=round(float(sim) * 100, 1),
+                similarity=round(float(sim), 1),
                 outcome=row["outcome"],
             )
         )
