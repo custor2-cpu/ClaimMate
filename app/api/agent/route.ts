@@ -3,6 +3,7 @@ import { getOpenAIClient, OPENAI_MODEL } from "@/lib/openai";
 import { buildFallbackReport } from "@/lib/fallbackAgent";
 import { DEFAULT_LEGAL_KNOWLEDGE, LEGAL_KNOWLEDGE } from "@/lib/legalKnowledge";
 import { retrieveLegalClauses } from "@/lib/legalSearch";
+import { computeElapsedDays } from "@/lib/dateUtils";
 import type {
   AgentReport,
   AnalysisReport,
@@ -149,20 +150,6 @@ const AGENT_JSON_SCHEMA = {
     ],
   },
 } as const;
-
-/**
- * ml.input.date(결제/계약 일자)로부터 오늘까지 경과일수를 계산한다. "7일 이내 청약철회",
- * "이용 개시 이전(=계약 후 상당 기간 미이용)" 같은 시간 기준 법령 조건은 이 경과일수 없이는
- * LLM이 판단할 근거가 없다 — 이전에는 오늘 날짜 자체가 프롬프트에 없어 date 필드가 있어도
- * 사실상 장식적인 값이었다.
- */
-function computeElapsedDays(dateStr: string | null): number | null {
-  if (!dateStr) return null;
-  const contractDate = new Date(dateStr);
-  if (Number.isNaN(contractDate.getTime())) return null;
-  const msPerDay = 1000 * 60 * 60 * 24;
-  return Math.floor((Date.now() - contractDate.getTime()) / msPerDay);
-}
 
 function buildPrompt(ml: MLAnalysisResult, retrievedClauses: ReferencedClause[] | null) {
   const isMlUnreliable = ml.confidence < ML_LOW_CONFIDENCE_WARNING_THRESHOLD;

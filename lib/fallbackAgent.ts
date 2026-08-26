@@ -1,5 +1,24 @@
 import type { AgentReport, MLAnalysisResult } from "@/lib/types";
 import { DEFAULT_LEGAL_KNOWLEDGE, LEGAL_KNOWLEDGE } from "@/lib/legalKnowledge";
+import { computeElapsedDays } from "@/lib/dateUtils";
+
+/**
+ * 결제/계약일로부터 경과일수가 짧을수록(청약철회 등 초기 대응 기간 이내) 유리하고,
+ * 많이 경과할수록 불리해지는 경향은 대부분의 소비자분쟁해결기준에 공통적이다. LLM
+ * 없이도 이 경향만은 반영하도록, ML success_rate에 완만한 보정을 더한다(구체적인
+ * 업종별 법령 조건 판단은 여전히 OPENAI_API_KEY 설정 시 AI 에이전트만 수행한다).
+ */
+const RECENT_THRESHOLD_DAYS = 7;
+const STALE_THRESHOLD_DAYS = 90;
+const RECENT_BONUS = 10;
+const STALE_PENALTY = 10;
+
+function applyDateAdjustment(successRate: number, elapsedDays: number | null): number {
+  if (elapsedDays === null) return successRate;
+  const adjustment =
+    elapsedDays <= RECENT_THRESHOLD_DAYS ? RECENT_BONUS : elapsedDays > STALE_THRESHOLD_DAYS ? -STALE_PENALTY : 0;
+  return Math.round(Math.min(97, Math.max(5, successRate + adjustment)) * 10) / 10;
+}
 
 /**
  * OPENAI_API_KEY가 설정되지 않았거나 OpenAI 호출이 실패했을 때 사용하는
@@ -11,6 +30,10 @@ export function buildFallbackReport(ml: MLAnalysisResult): AgentReport {
     ? `${ml.input.amount.toLocaleString("ko-KR")}원`
     : "[결제금액]";
   const contractDate = ml.input.date ?? "[계약일자]";
+  const elapsedDays = computeElapsedDays(ml.input.date);
+  const success_rate = applyDateAdjustment(ml.success_rate, elapsedDays);
+  const estimated_refund =
+    elapsedDays === null ? knowledge.estimated_refund : `${knowledge.estimated_refund} (결제/계약일로부터 ${elapsedDays}일 경과)`;
 
   const action_plan = [
     `1단계: ${knowledge.legal_basis.split(":")[0]} 근거 및 적정 환급액 산정 내역을 정리하여 사업자에게 서면(내용증명)으로 통보`,
@@ -42,8 +65,10 @@ ${new Date().toISOString().slice(0, 10)}
   return {
     category: ml.category,
     dispute_type: ml.dispute_type,
-    success_rate: ml.success_rate,
-    // 규칙 기반 폴백은 OpenAI를 호출하지 않으므로 법령 근거 기반 재산정도 수행하지 않는다.
+    success_rate,
+    // 규칙 기반 폴백은 OpenAI를 호출하지 않으므로 법령 근거 기반 재산정(legal_reasoning)은
+    // 수행하지 않는다. 위 경과일수 보정은 ML 기반 값 위에 얹은 완만한 조정일 뿐이라
+    // basis는 여전히 ml_similarity로 유지한다.
     success_rate_basis: "ml_similarity",
     certainty_level: null,
     is_legally_clear: false,
@@ -51,7 +76,7 @@ ${new Date().toISOString().slice(0, 10)}
     legal_basis: knowledge.legal_basis,
     // 규칙 기반 폴백은 RAG 검색을 수행하지 않으므로(OpenAI 호출 자체가 없음) 빈 배열로 둔다.
     referenced_clauses: [],
-    estimated_refund: knowledge.estimated_refund,
+    estimated_refund,
     action_plan,
     proof_documents: knowledge.proof_documents,
     notice_letter_template,

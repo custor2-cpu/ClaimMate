@@ -83,7 +83,16 @@ npm run dev
 `ResultReport.tsx`가 `legal_reasoning`일 때 게이지 아래에 "법령 근거 기반 추정" 배지를
 보여준다.
 - 규칙 기반 폴백(`fallbackAgent.ts`)은 OpenAI를 호출하지 않으므로 이 재산정을 수행하지
-  않고 항상 `success_rate_basis: "ml_similarity"`다.
+  않고 항상 `success_rate_basis: "ml_similarity"`다. 다만 결제/계약일(`date`)이 있으면
+  `lib/dateUtils.ts`의 `computeElapsedDays()`(원래 `route.ts`에만 있던 걸 두 파일이 공유하도록
+  분리)로 경과일수를 계산해, 7일 이내면 +10, 90일 초과면 -10을 ML `success_rate`에 더하는
+  완만한 보정을 적용한다(`applyDateAdjustment()`, 5~97로 clamp). 카테고리별 구체적인
+  법령 조건(예: 헬스장 위약금의 정확한 산정식) 판단은 여전히 LLM만 할 수 있으므로, 이
+  보정은 "최근일수록 대체로 유리하다"는 범용 경향만 반영하는 근사치다 — `legal_reasoning`
+  기반 재산정과 섞이지 않도록 `success_rate_basis`는 그대로 `ml_similarity`로 둔다.
+  `estimated_refund`에도 "(결제/계약일로부터 N일 경과)"를 덧붙여 폴백 모드에서도 날짜가
+  화면에 반영되게 했다(`legal_success_reasoning`은 `isLegalGrade`일 때만 UI에 노출되므로
+  폴백에서는 어차피 안 보인다 — 그래서 날짜 정보를 항상 보이는 `estimated_refund` 쪽에 붙였다).
 - 경계값 불연속 수정: "ML success_rate < 50%"라는 고정 임계값 대신, `legal_success_estimate`가
   ML 값보다 `MIN_LEGAL_OVERRIDE_MARGIN`(10) 이상 높을 때만 override하는 단방향(상향만) 규칙으로
   바꿨다 — 49.9%와 50.4%처럼 근거 차이가 거의 없는데 임계값 하나로 결과가 완전히 갈리는
