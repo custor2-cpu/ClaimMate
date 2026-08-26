@@ -42,7 +42,6 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
 }
 
 MAX_TEXT_LEN = 400
-MAX_OUTCOME_LEN = 160
 MIN_TEXT_LEN = 15
 
 # 원본 데이터에는 "환급 성공/실패" 라벨이 없으므로, 답변(ANS_CONTENT)의 어조에서
@@ -102,7 +101,7 @@ def build() -> list[dict]:
                 "text": content[:MAX_TEXT_LEN],
                 "category": category,
                 "dispute_type": title[:80],
-                "outcome": answer[:MAX_OUTCOME_LEN],
+                "outcome": answer,
                 "base_success_rate": _estimate_base_success_rate(answer),
             }
         )
