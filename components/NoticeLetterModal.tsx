@@ -55,7 +55,7 @@ export default function NoticeLetterModal({ open, onClose, template }: NoticeLet
               </button>
             </div>
 
-            <div className="overflow-y-auto px-5 py-4">
+            <div className="min-h-0 overflow-y-auto px-5 py-4">
               <pre className="whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-slate-950/60 p-4 font-mono text-[13px] leading-relaxed text-slate-200">
                 {template}
               </pre>

@@ -42,7 +42,7 @@ export default function SimilarCaseModal({ caseData, onClose }: SimilarCaseModal
               </button>
             </div>
 
-            <div className="overflow-y-auto px-5 py-4">
+            <div className="min-h-0 overflow-y-auto px-5 py-4">
               <div className="mb-3 flex items-center justify-between">
                 <span className="font-semibold text-slate-200">{caseData.category}</span>
                 <span className="rounded-full bg-brand-500/15 px-2.5 py-1 text-xs font-medium text-brand-300">
