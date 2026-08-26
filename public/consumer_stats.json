@@ -1,0 +1,70 @@
+{
+  "category_frequency": [
+    {
+      "category": "의류/패션잡화",
+      "count": 337
+    },
+    {
+      "category": "통신/인터넷",
+      "count": 328
+    },
+    {
+      "category": "자동차",
+      "count": 229
+    },
+    {
+      "category": "식품",
+      "count": 167
+    },
+    {
+      "category": "화장품/미용",
+      "count": 154
+    },
+    {
+      "category": "전자제품",
+      "count": 147
+    },
+    {
+      "category": "여행/숙박",
+      "count": 128
+    },
+    {
+      "category": "부동산/임대차",
+      "count": 89
+    },
+    {
+      "category": "의료/병원",
+      "count": 87
+    },
+    {
+      "category": "학원/교육서비스",
+      "count": 86
+    },
+    {
+      "category": "보험",
+      "count": 84
+    }
+  ],
+  "resolution_outcome": [
+    {
+      "name": "정보제공/안내",
+      "value": 1481
+    },
+    {
+      "name": "처리중",
+      "value": 603
+    },
+    {
+      "name": "조정 불성립/반려",
+      "value": 243
+    },
+    {
+      "name": "기타",
+      "value": 202
+    },
+    {
+      "name": "환급/배상",
+      "value": 85
+    }
+  ]
+}

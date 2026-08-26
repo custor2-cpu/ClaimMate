@@ -43,7 +43,7 @@ export default function StatCharts() {
   const [stats, setStats] = useState<StatsData | null>(null);
 
   useEffect(() => {
-    fetch("/sample_stats.json")
+    fetch("/consumer_stats.json")
       .then((res) => res.json())
       .then((data: StatsData) => setStats(data))
       .catch(() => setStats(null));

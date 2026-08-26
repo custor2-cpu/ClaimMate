@@ -86,10 +86,13 @@ export default function Home() {
       )}
 
       <section className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-        <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-200">
+        <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-200">
           <BarChart3 className="h-4 w-4 text-brand-400" />
           한국소비자원 공공데이터 통계 대시보드
         </div>
+        <p className="mb-4 text-xs text-slate-500">
+          공정거래위원회 1372 소비자상담 상담상세현황 공공데이터(data.go.kr) 2026년 1월 접수분 표본 3,000건 기준
+        </p>
         <StatCharts />
       </section>
 
