@@ -107,12 +107,12 @@ function SuccessGauge({
         <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
           {isLegalGrade && grade ? (
             <>
-              <span className={`text-2xl font-bold leading-tight ${text}`}>{certaintyLevel}</span>
+              <span className={`break-keep text-2xl font-bold leading-tight ${text}`}>{certaintyLevel}</span>
               <span className="mt-1 text-[11px] font-medium text-slate-400">법령 근거 기반 추정</span>
             </>
           ) : (
             <>
-              <span className={`text-2xl font-bold leading-tight ${text}`}>{label}</span>
+              <span className={`break-keep text-xl font-bold leading-tight ${text}`}>{label}</span>
               <span className="mt-1 text-[11px] font-medium text-slate-400">과거 유사사례 통계 기반</span>
             </>
           )}
