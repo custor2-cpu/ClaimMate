@@ -6,15 +6,15 @@ import Header from "@/components/Header";
 import DisputeForm from "@/components/DisputeForm";
 import ResultReport from "@/components/ResultReport";
 import StatCharts from "@/components/StatCharts";
-import type { AnalysisReport, DisputeFormInput, MLAnalysisResult } from "@/lib/types";
+import type { AnalysisReport, AnalysisStage, DisputeFormInput, MLAnalysisResult } from "@/lib/types";
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
+  const [stage, setStage] = useState<AnalysisStage>("idle");
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(null);
 
   const handleSubmit = async (input: DisputeFormInput) => {
-    setLoading(true);
+    setStage("analyzing");
     setError(null);
     setReport(null);
 
@@ -29,6 +29,10 @@ export default function Home() {
         throw new Error(mlResult.error ?? "ML 분석에 실패했습니다.");
       }
 
+      // ML 분석(보통 수 초 이내)과 달리 LLM 리포트 생성은 OpenAI 응답 속도에 따라
+      // 걸리는 시간이 크게 달라진다 — 단계를 나눠 표시해야 사용자가 지금 어느 단계에
+      // 있는지, 왜 오래 걸릴 수 있는지 알 수 있다.
+      setStage("generating");
       const agentRes = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -43,7 +47,7 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.");
     } finally {
-      setLoading(false);
+      setStage("idle");
     }
   };
 
@@ -67,7 +71,7 @@ export default function Home() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 sm:px-6">
-        <DisputeForm onSubmit={handleSubmit} loading={loading} />
+        <DisputeForm onSubmit={handleSubmit} stage={stage} />
       </section>
 
       {error && (
@@ -86,10 +90,13 @@ export default function Home() {
       )}
 
       <section className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-        <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-200">
+        <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-200">
           <BarChart3 className="h-4 w-4 text-brand-400" />
           한국소비자원 공공데이터 통계 대시보드
         </div>
+        <p className="mb-4 text-xs text-slate-500">
+          공정거래위원회 1372 소비자상담 상담상세현황 공공데이터(data.go.kr) 2026년 1월 접수분 표본 3,000건 기준
+        </p>
         <StatCharts />
       </section>
 

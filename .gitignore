@@ -43,3 +43,8 @@ venv/
 
 .vercel
 .env*
+
+# 대용량 원본 데이터(검토/스테이징 전용, 커밋하면 저장소가 불필요하게 커짐).
+# 실제 운영에서 쓰는 정제 결과물은 api/ml_engine/case_bank_data.json이며 git에 남는다.
+data/raw/*위해위험*.csv
+data/staging/

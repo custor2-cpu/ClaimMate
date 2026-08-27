@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Search, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { QUICK_PRESETS, type DisputeFormInput } from "@/lib/types";
+import { QUICK_PRESETS, type AnalysisStage, type DisputeFormInput } from "@/lib/types";
 
 const CATEGORY_OPTIONS = [
   "자동 감지",
@@ -25,14 +25,42 @@ const CATEGORY_OPTIONS = [
 
 interface DisputeFormProps {
   onSubmit: (input: DisputeFormInput) => void;
-  loading: boolean;
+  stage: AnalysisStage;
 }
 
-export default function DisputeForm({ onSubmit, loading }: DisputeFormProps) {
+// LLM 리포트 생성 단계는 OpenAI 응답 속도(+ Vercel 서버리스 콜드 스타트)에 따라 걸리는
+// 시간이 매번 크게 달라 정확히 예측할 수 없다. 고정된 예상치를 카운트다운으로 보여주면
+// 실제로는 아직 진행 중인데 "1초 남음"에 멈춘 채 계속 표시돼 마치 멈춘 것처럼 보이는
+// 문제가 있었다 — 대신 실제 경과 시간을 그대로 세어 보여주고, 오래 걸리면 안내 문구만
+// 바꾼다(숫자를 거짓으로 줄이지 않음).
+const LONG_WAIT_THRESHOLD_SECONDS = 20;
+
+export default function DisputeForm({ onSubmit, stage }: DisputeFormProps) {
   const [text, setText] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState("");
   const [category, setCategory] = useState(CATEGORY_OPTIONS[0]);
+  const loading = stage !== "idle";
+
+  // stage가 바뀌는 것과 "같은" 렌더에서 시작 시각을 리셋해야 한다. useEffect로 리셋하면
+  // 그 사이 한 틱 동안 이전 단계에서 누적된 경과 초가 잠깐 그대로 보였다가 다음 렌더에서
+  // 뚝 떨어지는 것처럼 보이는 문제가 있었다(예: "5초" -> "1초"). 렌더 중 상태를 갱신하는
+  // React의 공식 패턴(경고 없이 리렌더만 한 번 더 유발)으로 이 지연을 없앤다.
+  const [prevStage, setPrevStage] = useState(stage);
+  const [stageStartedAt, setStageStartedAt] = useState<number | null>(null);
+  const [, forceTick] = useState(0);
+  if (stage !== prevStage) {
+    setPrevStage(stage);
+    setStageStartedAt(stage === "idle" ? null : Date.now());
+  }
+
+  useEffect(() => {
+    if (stageStartedAt === null) return;
+    const interval = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(interval);
+  }, [stageStartedAt]);
+
+  const elapsedSeconds = stageStartedAt === null ? 0 : Math.floor((Date.now() - stageStartedAt) / 1000);
 
   const applyPreset = (preset: DisputeFormInput) => {
     setText(preset.text);
@@ -136,10 +164,17 @@ export default function DisputeForm({ onSubmit, loading }: DisputeFormProps) {
             (!text.trim() || loading) && "cursor-not-allowed opacity-50 hover:brightness-100"
           )}
         >
-          {loading ? (
+          {stage === "analyzing" ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              AI가 분석 중입니다...
+              1/2단계: 데이터 분석 중...
+            </>
+          ) : stage === "generating" ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {elapsedSeconds < LONG_WAIT_THRESHOLD_SECONDS
+                ? `2/2단계: AI 리포트 생성 중... (${elapsedSeconds}초 경과)`
+                : `2/2단계: AI 리포트 생성 중입니다. 평소보다 다소 걸리고 있어요... (${elapsedSeconds}초 경과)`}
             </>
           ) : (
             <>
