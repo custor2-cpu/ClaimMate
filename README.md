@@ -10,14 +10,22 @@ RAG 법령 검색 → OpenAI LLM Agent 인사이트 리포트** 파이프라인�
 ## 주요 기능
 
 - 자유 서술형 소비자 피해 상담 내용을 입력하면 분쟁 유형을 자동 분류
-- 공정거래위원회 소비자 민원학습데이터(실제 425건 + 수작성 보강 사례) 기반 유사 사례 검색
-- 구제 성공 확률 산출 — RAG로 검색된 소비자분쟁해결기준 법령 조항과 사용자 사실관계를
-  대조해, 공공데이터 표본 부족으로 ML 수치가 부당하게 낮게 나온 경우 법령 근거로
-  상향 보정(Rerank)
-- 42개 법령 조항 지식베이스(임베딩 기반 하이브리드 검색)에서 관련 조항을 찾아 인용 —
+- 공정거래위원회·한국소비자원 공공데이터 3종(모범상담 CSV, 품목별 피해구제 XML,
+  표준답변 CSV) 기반 케이스뱅크(실제 약 1,399건)에서 BM25로 유사 사례 검색
+  (문서 길이에 따른 코사인 유사도 왜곡 문제를 해결하기 위해 BM25로 교체)
+- 구제 성공 가능성을 등급(certainty_level: 매우 높음/높음/조정 필요/구제 어려움)으로
+  제시 — RAG로 검색된 소비자분쟁해결기준 법령 조항과 사용자 사실관계를 대조해, 공공데이터
+  표본 부족으로 ML 수치가 부당하게 낮게 나온 경우 법령 근거로 상향 보정(Rerank).
+  정밀 % 숫자는 노출하지 않고 등급/정성적 라벨만 표시
+- ML 분류 신뢰도가 낮을 때(<35%) 무관한 카테고리 정보가 리포트를 오염시키지 않도록
+  RAG 검색·법적 근거·프롬프트 전 구간에서 원문 텍스트만 근거로 사용하도록 차단
+- 49개 법령 조항 지식베이스(임베딩 기반 하이브리드 검색)에서 관련 조항을 찾아 인용 —
   법령명·조항 원문·산정식을 UI에서 직접 확인 가능
-- 법적 근거, 예상 환급 범위, 단계별 실행 계획, 맞춤형 내용증명 초안을 GPT-4o-mini로 생성
-  (`OPENAI_API_KEY` 미설정 시 규칙 기반 폴백으로 자동 대체)
+- 법적 근거, 예상 환급 범위(계속거래 계약의 기사용분 차감 반영), 단계별 실행 계획,
+  맞춤형 내용증명 초안(주소/환급계좌/첨부서류/미이행 시 조치 포함)을 GPT-4o-mini로 생성
+  (`OPENAI_API_KEY` 미설정 시 규칙 기반 폴백으로 자동 대체, 이 경우도 결제/계약일
+  경과일수를 반영해 완만하게 보정)
+- 공정거래위원회 1372 소비자상담센터 실통계(품목별 분쟁 빈도, 처리 결과 분포) 대시보드
 - 배포마다 자동 갱신되는 버전 정보 표시 및 새 배포 감지 시 자동 새로고침
 
 ## 아키텍처
@@ -33,27 +41,30 @@ RAG 법령 검색 → OpenAI LLM Agent 인사이트 리포트** 파이프라인�
 api/ml_predict.py → ml_engine/
    │  cleaner.py   : PII 마스킹, 노이즈 제거, 파생변수 생성
    │  predictor.py : TF-IDF(char n-gram) + Logistic Regression 분류
-   │                 + KMeans/Cosine Similarity 유사사례 검색
+   │                 + KMeans/BM25 유사사례 검색(코사인 유사도 대신 BM25로
+   │                   문서 길이 왜곡 제거)
    │                 + 구제 성공확률 가중 산출
    ▼
-ML 분석 결과 (category, dispute_type, success_rate, similar_cases ...)
+ML 분석 결과 (category, dispute_type, success_rate, confidence, similar_cases ...)
    ▼
 /api/agent (Next.js route.ts)
-   │  lib/legalSearch.ts: 상담 텍스트를 임베딩해 legal_kb_embedded.json(42개 법령
+   │  lib/legalSearch.ts: 상담 텍스트를 임베딩해 legal_kb_embedded.json(49개 법령
    │  조항)과 하이브리드(코사인 유사도+카테고리+키워드) 검색으로 Top-2 조항 검색
-   │  OPENAI_API_KEY 있음 → 검색된 조항을 프롬프트에 주입해 GPT-4o-mini
-   │  (Structured JSON Output)로 리포트 생성. 법령 근거가 ML success_rate보다
-   │  뚜렷이 유리하면 그 값으로 success_rate 재산정(상향 전용, resolveSuccessRate())
-   │  없음/실패 → lib/fallbackAgent.ts 규칙 기반 폴백
+   │  (ML confidence<35%면 category/dispute_type을 검색에서 배제)
+   │  OPENAI_API_KEY 있음 → 검색된 조항 + 결제일 경과일수를 프롬프트에 주입해
+   │  GPT-4o-mini(Structured JSON Output)로 리포트 생성. LLM이 먼저 certainty_level
+   │  등급을 정하고 그 범위 안에서 legal_success_estimate 산정 → ML success_rate보다
+   │  뚜렷이 유리하면 그 값으로 재산정(상향 전용, resolveSuccessRate())
+   │  없음/실패 → lib/fallbackAgent.ts 규칙 기반 폴백(날짜 기반 완만한 보정만 적용)
    ▼
-ResultReport.tsx 등에서 최종 리포트 렌더링 (인용 법령 조항 아코디언,
-"법령 근거 기반 추정" 배지 등)
+ResultReport.tsx 등에서 최종 리포트 렌더링 (등급/정성적 라벨 기반 게이지,
+인용 법령 조항 아코디언, 유사 사례 팝업, 내용증명 모달 등)
 ```
 
 분석 알고리즘의 수식/근거는 [docs/분석.md](docs/분석.md), 데이터 전처리 과정은
-[docs/기술스택.md](docs/기술스택.md), RAG·success_rate 재산정을 포함한 전체 개발
-내역은 [docs/SPEC_ClaimMate_Final.md](docs/SPEC_ClaimMate_Final.md)에 정리되어
-있습니다.
+[docs/기술스택.md](docs/기술스택.md), RAG·success_rate 재산정·저신뢰도 오염 차단 등
+전체 개발 내역은 [docs/SPEC_ClaimMate_Final.md](docs/SPEC_ClaimMate_Final.md)에
+정리되어 있습니다.
 
 ## 기술 스택
 
@@ -61,8 +72,8 @@ ResultReport.tsx 등에서 최종 리포트 렌더링 (인용 법령 조항 아�
 |---|---|
 | 프론트엔드 | Next.js 14 (App Router), React, TypeScript, Tailwind CSS, Recharts, Framer Motion |
 | 백엔드 API | Next.js Route Handlers (Node.js runtime) |
-| ML 파이프라인 | Python, Pandas, NumPy, Scikit-learn (TF-IDF, Logistic Regression, KMeans), SciPy, joblib |
-| RAG 검색 | OpenAI `text-embedding-3-small`, 로컬 JSON + 코사인 유사도(브루트포스) |
+| ML 파이프라인 | Python, Pandas, NumPy, Scikit-learn (TF-IDF, Logistic Regression, KMeans), BM25(자체 구현), SciPy, joblib |
+| RAG 검색 | OpenAI `text-embedding-3-small`, 로컬 JSON + 코사인 유사도(브루트포스) + 키워드 가중치 |
 | LLM Agent | OpenAI API (`gpt-4o-mini`, Structured JSON Output, temperature 0.2) |
 | 배포 | Vercel (Next.js 프레임워크 + Python 서버리스 함수 동시 배포) |
 
@@ -70,26 +81,39 @@ ResultReport.tsx 등에서 최종 리포트 렌더링 (인용 법령 조항 아�
 
 ```
 app/
-  page.tsx                 # 메인 페이지
+  page.tsx                 # 메인 페이지 (1372 실통계 대시보드 포함)
+  layout.tsx                # 루트 레이아웃
   api/analyze/route.ts     # ML 분석 라우트 (로컬 subprocess / 배포 시 내부 fetch 분기)
   api/agent/route.ts       # LLM 리포트 생성 라우트
   api/version/route.ts     # 배포 버전 조회 (자동 업데이트 감지용)
-components/                # UI 컴포넌트 (DisputeForm, ResultReport, VersionWatcher 등)
+components/
+  DisputeForm.tsx           # 상담 입력 폼 (단계별 분석 대기 표시 포함)
+  ResultReport.tsx          # 최종 리포트 렌더링 (등급 게이지, 조항 아코디언)
+  SimilarCaseModal.tsx      # 유사 사례 전체 내용 팝업
+  NoticeLetterModal.tsx     # 내용증명 초안 모달
+  ActionChecklist.tsx       # 실행 계획/증빙 자료 체크리스트
+  StatCharts.tsx             # 1372 실통계 대시보드 차트
+  Header.tsx / VersionWatcher.tsx  # 헤더, 배포 버전 자동 감지·새로고침
 lib/
-  legalSearch.ts           # RAG 검색 (쿼리 임베딩 + 하이브리드 유사도)
-  legalKnowledge.ts        # 정적 법적 근거 지식(폴백용)
+  legalSearch.ts           # RAG 검색 (쿼리 임베딩 + 하이브리드 유사도, 저신뢰도 배제)
+  legalKnowledge.ts        # 정적 법적 근거 지식(폴백/저신뢰도용)
+  fallbackAgent.ts          # OPENAI_API_KEY 없을 때 규칙 기반 리포트 생성
+  dateUtils.ts               # 결제/계약일 경과일수 계산 (route.ts/fallbackAgent.ts 공유)
+  types.ts / openai.ts / utils.ts
   knowledge_base/
-    legal_kb.json          # 법령 조항 청크 원본 (42개)
+    legal_kb.json          # 법령 조항 청크 원본 (49개)
     legal_kb_embedded.json # 임베딩 빌드 산출물 (scripts/build_legal_kb.py 결과)
 scripts/
   build_legal_kb.py        # legal_kb.json -> legal_kb_embedded.json 임베딩 빌드
+  fetch_1372_api.py         # 1372 공공데이터 -> public/consumer_stats.json 생성
 api/
-  ml_predict.py            # Vercel Python 서버리스 함수 진입점 (/api/ml_predict)
+  ml_predict.py             # Vercel Python 서버리스 함수 진입점 (/api/ml_predict)
   ml_engine/
     cleaner.py             # 텍스트 전처리 (Pandas/NumPy)
-    predictor.py           # 분류/유사사례 검색 (Scikit-learn)
-    build_case_bank.py     # 원본 공공데이터 CSV → case_bank_data.json 빌드 스크립트
-data/raw/                  # 공정거래위원회 원본 CSV
+    predictor.py           # 분류/유사사례 검색 (Scikit-learn + BM25)
+    build_case_bank.py     # 공공데이터 3종 → case_bank_data.json 빌드 스크립트
+    case_bank_data.json    # 정제된 케이스뱅크 (약 1,399건)
+data/raw/                  # 공정거래위원회·한국소비자원 원본 데이터
 docs/                      # 명세서, 기술 문서 (SPEC_ClaimMate_Final.md가 종합 보고서)
 ```
 
@@ -112,14 +136,18 @@ npm run dev
 
 ### ML 학습 데이터 재생성
 
-`data/raw/`의 원본 CSV는 카테고리 라벨이 없으므로, 다음 스크립트가 제목/본문
-키워드 매칭으로 카테고리를 부여해 `api/ml_engine/case_bank_data.json`을 만듭니다.
+`data/raw/`의 원본 데이터(모범상담 CSV, 품목별 피해구제 XML, 표준답변 CSV)는
+일부 카테고리 라벨이 없거나 신뢰할 수 없으므로, 다음 스크립트가 제목/본문 키워드
+매칭(또는 표준답변의 경우 품목명 직접 매핑)으로 카테고리를 부여해
+`api/ml_engine/case_bank_data.json`을 만듭니다.
 
 ```bash
 python api/ml_engine/build_case_bank.py
 ```
 
-원본 CSV를 교체하거나 카테고리 키워드를 수정하면 위 스크립트를 다시 실행해야 합니다.
+원본 데이터를 교체하거나 카테고리 키워드를 수정하면 위 스크립트를 다시 실행해야
+합니다. 케이스뱅크가 바뀌면 `predictor.py`의 학습 모델 캐시(`_model_cache.joblib`)가
+자동으로 재생성됩니다.
 
 ### RAG 법령 지식베이스 재생성
 
