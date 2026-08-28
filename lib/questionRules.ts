@@ -2,6 +2,22 @@ import type { AgentQuestion, MLAnalysisResult } from "@/lib/types";
 
 const MAX_QUESTIONS = 3;
 
+const CATEGORY_SIGNALS = [
+  /헬스장|피트니스|필라테스|요가|수영장|체육관/,
+  /통신|인터넷|휴대폰|알뜰폰|정액제|와이파이/,
+  /옷|의류|신발|가방|패션|쇼핑몰|온라인몰/,
+  /전자제품|노트북|컴퓨터|휴대폰|이어폰|TV|냉장고|세탁기|정수기/,
+  /여행|숙박|호텔|펜션|항공|항공권|콘도/,
+  /학원|교육|과외|수강|강의|학습지/,
+  /상조|결혼중개|결혼식|웨딩/,
+  /병원|의원|치과|성형|수술|진료/,
+  /보험|보험금|보험료/,
+  /자동차|중고차|렌터카|차량|정비|수리/,
+  /화장품|피부관리|미용실|네일|마사지/,
+  /부동산|임대차|전세|월세|아파트|주택|집|공인중개사/,
+  /식품|음식|배달|도시락|건강식품/,
+];
+
 function hasAny(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
 }
@@ -21,6 +37,14 @@ export function getMissingQuestions(ml: MLAnalysisResult): AgentQuestion[] {
   const text = ml.input.text;
   const questions: AgentQuestion[] = [];
   const category = ml.category;
+
+  if (!ml.input.category_hint && !hasAny(text, CATEGORY_SIGNALS)) {
+    questions.push({
+      id: "category",
+      question: "환불을 요청한 품목이나 서비스는 무엇인가요?",
+      reason: "품목이나 서비스에 따라 적용되는 환불 기준이 달라 정확한 분석에 필요합니다.",
+    });
+  }
 
   if (["체육시설/헬스장", "화장품/미용", "학원/교육서비스"].includes(category)) {
     addQuestion(
