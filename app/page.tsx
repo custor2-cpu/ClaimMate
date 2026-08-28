@@ -1,22 +1,33 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircle, BarChart3 } from "lucide-react";
+import { AlertCircle, BarChart3, MessageCircle, Send } from "lucide-react";
 import Header from "@/components/Header";
 import DisputeForm from "@/components/DisputeForm";
 import ResultReport from "@/components/ResultReport";
 import StatCharts from "@/components/StatCharts";
-import type { AnalysisReport, AnalysisStage, DisputeFormInput, MLAnalysisResult } from "@/lib/types";
+import type {
+  AgentQuestion,
+  AgentQuestionResponse,
+  AnalysisReport,
+  AnalysisStage,
+  DisputeFormInput,
+  MLAnalysisResult,
+} from "@/lib/types";
 
 export default function Home() {
   const [stage, setStage] = useState<AnalysisStage>("idle");
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(null);
+  const [questions, setQuestions] = useState<AgentQuestion[]>([]);
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
+  const [pendingInput, setPendingInput] = useState<DisputeFormInput | null>(null);
 
   const handleSubmit = async (input: DisputeFormInput) => {
     setStage("analyzing");
     setError(null);
     setReport(null);
+    setQuestions([]);
 
     try {
       const analyzeRes = await fetch("/api/analyze", {
@@ -38,17 +49,38 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(mlResult),
       });
-      const agentReport = (await agentRes.json()) as AnalysisReport & { error?: string };
-      if (!agentRes.ok || agentReport.error) {
-        throw new Error(agentReport.error ?? "리포트 생성에 실패했습니다.");
+      const agentResponse = (await agentRes.json()) as
+        | (AnalysisReport & { error?: string })
+        | (AgentQuestionResponse & { error?: string });
+      if (!agentRes.ok || "error" in agentResponse && agentResponse.error) {
+        throw new Error(
+          ("error" in agentResponse && agentResponse.error) || "리포트 생성에 실패했습니다."
+        );
       }
 
-      setReport(agentReport);
+      if ("next_action" in agentResponse && agentResponse.next_action === "ask_questions") {
+        setQuestions(agentResponse.questions);
+        setQuestionAnswers({});
+        setPendingInput(input);
+        return;
+      }
+
+      setReport(agentResponse as AnalysisReport);
     } catch (err) {
       setError(err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.");
     } finally {
       setStage("idle");
     }
+  };
+
+  const handleQuestionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pendingInput || questions.some((question) => !questionAnswers[question.id]?.trim())) return;
+
+    const answers = questions
+      .map((question) => `${question.question}\n답변: ${questionAnswers[question.id].trim()}`)
+      .join("\n\n");
+    await handleSubmit({ ...pendingInput, text: `${pendingInput.text}\n\n[추가 확인 답변]\n${answers}` });
   };
 
   return (
@@ -80,6 +112,53 @@ export default function Home() {
             <AlertCircle className="h-4 w-4 shrink-0" />
             {error}
           </div>
+        </section>
+      )}
+
+      {questions.length > 0 && (
+        <section className="mx-auto max-w-6xl px-4 pt-8 sm:px-6">
+          <form
+            onSubmit={handleQuestionSubmit}
+            className="rounded-2xl border border-brand-400/20 bg-slate-900/70 p-5 shadow-card sm:p-6"
+          >
+            <div className="mb-5 flex items-start gap-3">
+              <MessageCircle className="mt-0.5 h-5 w-5 shrink-0 text-brand-400" />
+              <div>
+                <h2 className="text-base font-semibold text-slate-100">정확한 분석을 위해 확인이 필요합니다</h2>
+                <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                  아래 질문에 답하면 환급액과 적용 기준을 다시 계산합니다.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {questions.map((question) => (
+                <label key={question.id} className="block">
+                  <span className="mb-1.5 block text-sm font-medium text-slate-200">{question.question}</span>
+                  <span className="mb-2 block text-xs text-slate-500">{question.reason}</span>
+                  <textarea
+                    rows={2}
+                    value={questionAnswers[question.id] ?? ""}
+                    onChange={(event) =>
+                      setQuestionAnswers((previous) => ({
+                        ...previous,
+                        [question.id]: event.target.value,
+                      }))
+                    }
+                    className="w-full resize-y rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-brand-400/60 focus:ring-2 focus:ring-brand-400/20"
+                    placeholder="답변을 입력해 주세요"
+                  />
+                </label>
+              ))}
+            </div>
+            <button
+              type="submit"
+              disabled={stage !== "idle" || questions.some((question) => !questionAnswers[question.id]?.trim())}
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-700 py-3 text-sm font-semibold text-white shadow-glow transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Send className="h-4 w-4" />
+              답변하고 다시 분석하기
+            </button>
+          </form>
         </section>
       )}
 

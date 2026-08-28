@@ -25,6 +25,8 @@ RAG 법령 검색 → OpenAI LLM Agent 인사이트 리포트** 파이프라인�
   맞춤형 내용증명 초안(주소/환급계좌/첨부서류/미이행 시 조치 포함)을 GPT-4o-mini로 생성
   (`OPENAI_API_KEY` 미설정 시 규칙 기반 폴백으로 자동 대체, 이 경우도 결제/계약일
   경과일수를 반영해 완만하게 보정)
+- 정보가 부족한 경우 카테고리별 규칙 엔진이 환급 계산·법령 판단에 필요한 추가 질문을
+  최대 3개까지 반환하고, 사용자의 답변을 원문에 합쳐 ML 분석부터 다시 실행
 - 공정거래위원회 1372 소비자상담센터 실통계(품목별 분쟁 빈도, 처리 결과 분포) 대시보드
 - 배포마다 자동 갱신되는 버전 정보 표시 및 새 배포 감지 시 자동 새로고침
 
@@ -48,7 +50,10 @@ api/ml_predict.py → ml_engine/
 ML 분석 결과 (category, dispute_type, success_rate, confidence, similar_cases ...)
    ▼
 /api/agent (Next.js route.ts)
-   │  lib/legalSearch.ts: 상담 텍스트를 임베딩해 legal_kb_embedded.json(49개 법령
+  │  lib/questionRules.ts: ML 결과와 상담 원문에서 카테고리별 필수 정보 누락 여부를 검사
+  │  누락 있음 → next_action=ask_questions와 최대 3개 질문 반환
+  │  답변 제출 시 상담 원문에 답변을 합쳐 /api/analyze부터 재실행
+  │  정보 충분 → lib/legalSearch.ts가 상담 텍스트를 임베딩해 legal_kb_embedded.json(49개 법령
    │  조항)과 하이브리드(코사인 유사도+카테고리+키워드) 검색으로 Top-2 조항 검색
    │  (ML confidence<35%면 category/dispute_type을 검색에서 배제)
    │  OPENAI_API_KEY 있음 → 검색된 조항 + 결제일 경과일수를 프롬프트에 주입해
@@ -95,6 +100,7 @@ components/
   StatCharts.tsx             # 1372 실통계 대시보드 차트
   Header.tsx / VersionWatcher.tsx  # 헤더, 배포 버전 자동 감지·새로고침
 lib/
+  questionRules.ts           # 카테고리별 추가 질문 및 누락 정보 판별 규칙
   legalSearch.ts           # RAG 검색 (쿼리 임베딩 + 하이브리드 유사도, 저신뢰도 배제)
   legalKnowledge.ts        # 정적 법적 근거 지식(폴백/저신뢰도용)
   fallbackAgent.ts          # OPENAI_API_KEY 없을 때 규칙 기반 리포트 생성

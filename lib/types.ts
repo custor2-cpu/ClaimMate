@@ -81,6 +81,19 @@ export interface AgentReport {
   notice_letter_template: string;
 }
 
+export interface AgentQuestion {
+  id: string;
+  question: string;
+  reason: string;
+}
+
+export interface AgentQuestionResponse {
+  next_action: "ask_questions";
+  questions: AgentQuestion[];
+}
+
+export type AgentResponse = AgentReport | AgentQuestionResponse;
+
 /** 최종 프론트엔드 렌더링용 통합 결과 */
 export interface AnalysisReport extends AgentReport {
   similar_cases: SimilarCase[];

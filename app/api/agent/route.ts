@@ -4,8 +4,10 @@ import { buildFallbackReport } from "@/lib/fallbackAgent";
 import { DEFAULT_LEGAL_KNOWLEDGE, LEGAL_KNOWLEDGE } from "@/lib/legalKnowledge";
 import { retrieveLegalClauses } from "@/lib/legalSearch";
 import { computeElapsedDays } from "@/lib/dateUtils";
+import { getMissingQuestions } from "@/lib/questionRules";
 import type {
   AgentReport,
+  AgentQuestionResponse,
   AnalysisReport,
   CertaintyLevel,
   MLAnalysisResult,
@@ -395,6 +397,15 @@ export async function POST(req: NextRequest) {
         { error: "ML 분석 결과가 유효하지 않습니다." },
         { status: 400 }
       );
+    }
+
+    const questions = getMissingQuestions(ml);
+    if (questions.length > 0) {
+      const response: AgentQuestionResponse = {
+        next_action: "ask_questions",
+        questions,
+      };
+      return NextResponse.json(response);
     }
 
     let report: AgentReport;
