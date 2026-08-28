@@ -44,6 +44,7 @@ export function getMissingQuestions(ml: MLAnalysisResult): AgentQuestion[] {
       question: "환불을 요청한 품목이나 서비스는 무엇인가요?",
       reason: "품목이나 서비스에 따라 적용되는 환불 기준이 달라 정확한 분석에 필요합니다.",
     });
+    return questions;
   }
 
   if (["체육시설/헬스장", "화장품/미용", "학원/교육서비스"].includes(category)) {
